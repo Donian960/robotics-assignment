@@ -1,0 +1,48 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Parquetry.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/mobsya/thymio/protos/Thymio2.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.3511404681593726 0.1353470078170031 0.9264888337674667 2.45560242386588
+  position 1.3023514335411575 -1.0938845685026681 1.2997705869482004
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorAppearance Parquetry {
+    type "light strip"
+    colorOverride 0.949096 0.980865 1
+  }
+}
+Thymio2 {
+  hidden position_0_0 0.3026381104648782
+  hidden position_0_1 0.3026381179735316
+  hidden linearVelocity_0 -3.7610818579078706e-17 1.89213720255737e-16 7.105427357601002e-17
+  hidden angularVelocity_0 -5.238875657511988e-16 -2.735309557419205e-15 1.7778546159655038e-17
+  hidden rotation_1 0.6273588385816735 0.6273588483957067 0.46134776795067156 2.277091430994927
+  hidden linearVelocity_1 2.0684096384336802e-16 -4.3936734057916116e-17 -4.070887152245943e-16
+  hidden angularVelocity_1 -2.1632282599456981e-16 7.036119218466204e-15 8.12478942810349e-17
+  hidden rotation_2 0.6273588396320248 0.627358849446058 0.46134776509405323 2.2770914357055467
+  hidden linearVelocity_2 -2.0662042190330314e-16 -5.613252686623191e-17 -3.720272324889399e-17
+  hidden angularVelocity_2 4.4452266473430404e-17 -9.201010208526065e-15 1.1014610514591672e-16
+  translation 0.028921767525755083 -0.3837310577765282 -6.641446640386073e-05
+  rotation 0.004433553726182985 -0.004440461697816532 0.99998031275684 1.569274936651923
+  controller "line_follow"
+}
+Shape {
+  appearance PBRAppearance {
+    baseColor 0 0 0
+  }
+  geometry Box {
+    size 0.005 1 0.01
+  }
+  isPickable FALSE
+}
