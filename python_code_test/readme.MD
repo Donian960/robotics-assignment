@@ -1,11 +1,11 @@
 
-##Objective
+## Objective
 This simulation is written in pure Python and requires a few common scientific/data packages. This is the base code for the server logic
 
 Run the Simulation:
 Execute the main Python script. The simulation will run until all tasks are delivered and will print final metrics and logs to the console.
 
-##Core Simulation Details
+## Core Simulation Details
 The World: The environment is a simple, straight-line graph
 
 Nodes: A, B, C, D (A has a charging station).
