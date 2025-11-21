@@ -1,0 +1,6 @@
+- Step 0: Set up testing environment (layout of paths & end destinations)
+- Step 1: Robot can follow a line
+- Step 2: Robot stops if it detects an interchange
+- Step 3: Robot correctly changes direction at the interchange
+- Step 4: Robot stops if it detects an end destination
+- Step X: Evaluation metrics of some kind
