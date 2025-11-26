@@ -1,0 +1,44 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera4/protos/Khepera4.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.047277761634949865 0.9906191670585066 0.12821263241623052 0.7454098713998086
+  position -3.29924525072402 -0.40183700380809567 3.1048495996695853
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 2 2
+  floorTileSize 1 1
+  floorAppearance Appearance {
+    texture ImageTexture {
+      url [
+        ""
+      ]
+    }
+    textureTransform TextureTransform {
+      scale 0.5 0.5
+    }
+  }
+  wallHeight 0
+  wallAppearance NULL
+}
+Khepera4 {
+  hidden position_0_0 1.9547069537646488e-10
+  hidden position_0_1 1.8469871397171729e-10
+  hidden translation_1 0 0.0527 0.021
+  hidden rotation_1 0.5773502690014087 -0.5773502690014087 -0.5773502695660596 2.094394999435349
+  hidden translation_2 0 -0.0527 0.021
+  hidden rotation_2 0.5773502690117904 -0.5773502690117904 -0.5773502695452963 2.0943949994664934
+  translation 1.9441473563076186e-18 -1.2489546194571455e-10 -0.00016052396988929657
+  rotation -0.9999999999999397 -3.377642166536108e-07 8.061696899405013e-08 1.5276801860440563e-10
+  controller "my_controller"
+}
