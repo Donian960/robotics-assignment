@@ -8,37 +8,42 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.047277761634949865 0.9906191670585066 0.12821263241623052 0.7454098713998086
-  position -3.29924525072402 -0.40183700380809567 3.1048495996695853
+  orientation -0.04328448210153566 0.9887903124383073 0.14289916597851962 0.5945845742476856
+  position -4.676505688603116 -0.6135562223353144 3.308011119824097
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 RectangleArena {
-  floorSize 2 2
-  floorTileSize 1 1
+  floorSize 4 4
+  floorTileSize 2 2
   floorAppearance Appearance {
     texture ImageTexture {
       url [
-        ""
+        "../floor.png"
       ]
+      repeatS FALSE
+      repeatT FALSE
+      filtering 0
     }
     textureTransform TextureTransform {
       scale 0.5 0.5
     }
   }
   wallHeight 0
-  wallAppearance NULL
+  wallAppearance Appearance {
+    texture ImageTexture {
+      url [
+        "../wall.png"
+      ]
+    }
+  }
 }
 Khepera4 {
-  hidden position_0_0 1.9547069537646488e-10
-  hidden position_0_1 1.8469871397171729e-10
   hidden translation_1 0 0.0527 0.021
-  hidden rotation_1 0.5773502690014087 -0.5773502690014087 -0.5773502695660596 2.094394999435349
   hidden translation_2 0 -0.0527 0.021
-  hidden rotation_2 0.5773502690117904 -0.5773502690117904 -0.5773502695452963 2.0943949994664934
-  translation 1.9441473563076186e-18 -1.2489546194571455e-10 -0.00016052396988929657
-  rotation -0.9999999999999397 -3.377642166536108e-07 8.061696899405013e-08 1.5276801860440563e-10
+  translation 1.25 0.62 -0.000160525
+  rotation 6.510334457808397e-10 -6.510332384898565e-10 -0.9999999999999999 1.5707953071795862
   controller "my_controller"
 }
