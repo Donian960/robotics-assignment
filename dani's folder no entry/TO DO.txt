@@ -7,5 +7,6 @@
 - Step A: Robot follows directly through the intersection without stopping if necessary
 - Step B: Robot goes to higher speeds on straights if safe
 - Step C: More precise stopping
+- Step D: Comment code!!
 
 - Step Z: Evaluation metrics of some kind
