@@ -4,9 +4,11 @@
 - Step 3: Robot correctly changes direction at the interchange DONE
 - Step 4: Robot stops if it detects an end destination DONE?
 
-- Step A: Robot follows directly through the intersection without stopping if necessary
-- Step B: Robot goes to higher speeds on straights if safe
-- Step C: More precise stopping
-- Step D: Comment code!!
+- Step A: Robot follows directly through the intersection without stopping if necessary DONE
+- Step B: Robot goes to higher speeds on straights if safe DONE
+- Step C: More precise stopping DONE
 
-- Step Z: Evaluation metrics of some kind
+- Step I: Comment code!!
+- Step II: Test on non-grid map
+
+- Step END: Evaluation metrics of some kind

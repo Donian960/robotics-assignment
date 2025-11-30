@@ -1,5 +1,6 @@
 from controller import Robot
 
+import time
 
 ## Initialisation ## 
 robot = Robot()
@@ -124,7 +125,7 @@ state = "TURN"
 ## "STOPPING" - transition from FOLLOW to TURN
 ## "IDLE" - unmoving
 
-instructions = "FRLRRLRS"
+instructions = "FRFRS"
 # "instructions" can be made up of the following characters:
 ## "F" - move forwards at a spot
 ## "R" - turn right at a spot
@@ -140,77 +141,103 @@ robot.step(timestep)
 ahead = get_position(300)
 position = get_position()
 
+start_time = time.time()
+
 while robot.step(timestep) != -1:
+
+    if len(instructions) > 0 and current_instruction <= len(instructions):
     
-    if state == "FOLLOW":
-        l, r = adjustment()
-        
-        l_dif = l - 1035
-        r_dif = r - 1035
-        
-        if r_dif != 0 and l_dif != 0:
-    
-            left_wheel_motor.setVelocity(8 + (l_dif / 1000))
-            right_wheel_motor.setVelocity(8 + (r_dif / 1000))
+        if state == "FOLLOW":
+            l, r = adjustment()
             
-        else:
-            left_wheel_motor.setVelocity(10)
-            right_wheel_motor.setVelocity(10)
-        
-        if ahead != "black" and ahead != "white":
-            state = "STOPPING"
-        
-    if state == "STOPPING":
-        if position != "black":
-            left_wheel_motor.setVelocity(5)
-            right_wheel_motor.setVelocity(5)
-            spot_edge_check = get_position(310)
-            if (spot_edge_check == "black" or spot_edge_check == "white"):
-                left_wheel_motor.setVelocity(0)
-                right_wheel_motor.setVelocity(0)
-                turns = 0 
-                state = "TURN"
-        else:
-            left_wheel_motor.setVelocity(7.5)
-            right_wheel_motor.setVelocity(7.5)
-        
-    if state == "TURN":
-    
-        ci = instructions[current_instruction] # easy access to the current instruction
-    
-        if ci == "S": # if instruction is to stop, change to the idle state
-            state = "IDLE"
-            current_instruction += 1
+            dif = (l - r) / 1000
             
-        if ci == "F": # if instruction is to go forwards, change to the follow state
-            state = "FOLLOW"
-            current_instruction += 1
-            
-        if ci == "R" or ci == "U": # if instruction is to turn right or uturn, increases motor speed to do so
+            if dif >= 0.15:
         
-            left_wheel_motor.setVelocity(10)
-            right_wheel_motor.setVelocity(-10)
-            
-        if ci == "L": # if instruction is to turn left, increases motor speed to do so
-        
-            left_wheel_motor.setVelocity(-10)
-            right_wheel_motor.setVelocity(10)
-            
-        if ci == "R" or ci == "U" or ci == "L": # for any still-turning instruction
-            
-            new_ahead = get_position(300)
-            if new_ahead != ahead and new_ahead == "black":
-                turns += 1
+                left_wheel_motor.setVelocity(8 + (dif / 2))
+                right_wheel_motor.setVelocity(8 - (dif / 2))
                 
-                if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"):
-                    left_wheel_motor.setVelocity(0)
-                    right_wheel_motor.setVelocity(0)
-                    
+            elif dif < 0.15:
+        
+                left_wheel_motor.setVelocity(14 + (dif / 2))
+                right_wheel_motor.setVelocity(14 - (dif / 2))
+                
+            else:
+                left_wheel_motor.setVelocity(20)
+                right_wheel_motor.setVelocity(20)
+            
+            if ahead != "black" and ahead != "white":
+                state = "STOPPING"
+            
+        if state == "STOPPING":
+            if instructions[current_instruction] != "F":
+                if position != "black":
+                    left_wheel_motor.setVelocity(5)
+                    right_wheel_motor.setVelocity(5)
+                    spot_edge_check = get_position(310)
+                    if (spot_edge_check == "black" or spot_edge_check == "white"):
+                        left_wheel_motor.setVelocity(0)
+                        right_wheel_motor.setVelocity(0)
+                        turns = 0 
+                        state = "TURN"
+                else:
+                    left_wheel_motor.setVelocity(7.5)
+                    right_wheel_motor.setVelocity(7.5)
+            else:
+                left_wheel_motor.setVelocity(20)
+                right_wheel_motor.setVelocity(20)
+                if ahead == "black":
                     state = "FOLLOW"
                     current_instruction += 1
-    
-    ahead = get_position(300)
-    position = get_position()
+            
+        if state == "TURN":
+        
+            ci = instructions[current_instruction] # easy access to the current instruction
+        
+            if ci == "S": # if instruction is to stop, change to the idle state
+                state = "IDLE"
+                current_instruction += 1
+                print(instructions)
+                print(time.time() - start_time)
+                
+            if ci == "F": # if instruction is to go forwards, change to the follow state
+                state = "FOLLOW"
+                current_instruction += 1
+                
+            if ci == "R" or ci == "U": # if instruction is to turn right or uturn, increases motor speed to do so
+            
+                left_wheel_motor.setVelocity(10)
+                right_wheel_motor.setVelocity(-10)
+                
+            if ci == "L": # if instruction is to turn left, increases motor speed to do so
+            
+                left_wheel_motor.setVelocity(-10)
+                right_wheel_motor.setVelocity(10)
+                
+            if ci == "R" or ci == "U" or ci == "L": # for any still-turning instruction
+                
+                new_ahead = get_position(300)
+                if new_ahead != ahead and new_ahead == "black":
+                    turns += 1
+                    
+                    if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"):
+                        left_wheel_motor.setVelocity(0)
+                        right_wheel_motor.setVelocity(0)
+                        
+                        state = "FOLLOW"
+                        current_instruction += 1
+            
+        if state == "IDLE":
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+        
+        ahead = get_position(300)
+        position = get_position()
+        
+    else:
+        left_wheel_motor.setVelocity(0)
+        right_wheel_motor.setVelocity(0)
+        
    
 
 # Enter here exit cleanup code.
