@@ -90,6 +90,8 @@ def get_position(y = cam_height-2):
     g = g / t
     b = b / t
     
+    # getting its position based on colour values
+    
     if r < 96 and b < 96 and g > 256-96:
         return "green"
     if r > 256-96 and b < 96 and g < 96:
@@ -100,6 +102,13 @@ def get_position(y = cam_height-2):
         return "black"
     return "white"
     
+    # possible positions:
+    ## "black" - an edge / line
+    ## "white" - the vast expanse of nothing
+    ## "red" - an intersections
+    ## "green" - intended to represent a charging port, but functions like red
+    ## "blue" - intended to represent an end point, but functions like red
+    
 def adjustment():
     # gets which side has more black and so the robot should reallign
     
@@ -108,7 +117,7 @@ def adjustment():
     
     img = camera.getImage()
     
-    for x in range(cam_width // 4, cam_width // 4 * 3):
+    for x in range(cam_width // 4, cam_width // 4 * 3): # checks the centre of the x-axis
         if x < cam_width // 2:
             l += camera.imageGetGray(img, cam_width, x, 400)
         if x > cam_width // 2:
@@ -125,7 +134,7 @@ state = "TURN"
 ## "STOPPING" - transition from FOLLOW to TURN
 ## "IDLE" - unmoving
 
-instructions = "FRFRS"
+instructions = "FFRRRRLRFRRRLLFLLFLLLS"
 # "instructions" can be made up of the following characters:
 ## "F" - move forwards at a spot
 ## "R" - turn right at a spot
@@ -134,63 +143,83 @@ instructions = "FRFRS"
 ## "S" - stop at a spot
 
 current_instruction = 0
+# index of the current instruction in the instructions string
 
 turns = 0
+# used in the "TURN" state
 
 robot.step(timestep)
 ahead = get_position(300)
 position = get_position()
+# getting initial values of ahead and position
 
 start_time = time.time()
 
 while robot.step(timestep) != -1:
 
-    if len(instructions) > 0 and current_instruction <= len(instructions):
+    if len(instructions) > 0 and current_instruction < len(instructions):
     
-        if state == "FOLLOW":
-            l, r = adjustment()
+        if state == "FOLLOW": # if it is currently following a line
+        
+            l, r = adjustment() # checks what side of the line it is on
             
             dif = (l - r) / 1000
             
+            # speeds are set based on what side of the line it is on, as well as how far off the line it is
+            
             if dif >= 0.15:
+            
+                # slower speeds are used the further off-line it is so it can readjust easier
         
-                left_wheel_motor.setVelocity(8 + (dif / 2))
-                right_wheel_motor.setVelocity(8 - (dif / 2))
+                left_wheel_motor.setVelocity(10 + (dif / 2))
+                right_wheel_motor.setVelocity(10 - (dif / 2))
                 
-            elif dif < 0.15:
+            elif dif < 0.15 and dif >= 0.05:
         
-                left_wheel_motor.setVelocity(14 + (dif / 2))
-                right_wheel_motor.setVelocity(14 - (dif / 2))
+                left_wheel_motor.setVelocity(15 + (dif / 2))
+                right_wheel_motor.setVelocity(15 - (dif / 2))
                 
             else:
-                left_wheel_motor.setVelocity(20)
-                right_wheel_motor.setVelocity(20)
             
-            if ahead != "black" and ahead != "white":
+                left_wheel_motor.setVelocity(20 + (dif / 2))
+                right_wheel_motor.setVelocity(20 - (dif / 2))
+            
+            if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                 state = "STOPPING"
             
-        if state == "STOPPING":
-            if instructions[current_instruction] != "F":
-                if position != "black":
+        if state == "STOPPING": # if the robot is stopping at an intersection
+        
+            if instructions[current_instruction] != "F": # if the robot is not currently stopping
+            
+                if position != "black": # if it is fully on the spot, slows down
+                
                     left_wheel_motor.setVelocity(5)
                     right_wheel_motor.setVelocity(5)
                     spot_edge_check = get_position(310)
-                    if (spot_edge_check == "black" or spot_edge_check == "white"):
+                    
+                    if (spot_edge_check == "black" or spot_edge_check == "white"): # if it sees the far side of the spot, stops and swaps to turn mode
+
                         left_wheel_motor.setVelocity(0)
                         right_wheel_motor.setVelocity(0)
                         turns = 0 
                         state = "TURN"
-                else:
-                    left_wheel_motor.setVelocity(7.5)
-                    right_wheel_motor.setVelocity(7.5)
-            else:
+                        
+                else: # if its still partially on the line, is slower but not too slow
+                
+                    left_wheel_motor.setVelocity(10)
+                    right_wheel_motor.setVelocity(10)
+                    
+            else: # if the robot is meant to pass through the intersection
+            
                 left_wheel_motor.setVelocity(20)
                 right_wheel_motor.setVelocity(20)
-                if ahead == "black":
+                
+                if ahead == "black": # if it detects an upcoming line, swaps back to following
+                
                     state = "FOLLOW"
                     current_instruction += 1
             
-        if state == "TURN":
+        if state == "TURN": # if it is currently in the middle of turning
         
             ci = instructions[current_instruction] # easy access to the current instruction
         
@@ -217,24 +246,24 @@ while robot.step(timestep) != -1:
             if ci == "R" or ci == "U" or ci == "L": # for any still-turning instruction
                 
                 new_ahead = get_position(300)
-                if new_ahead != ahead and new_ahead == "black":
-                    turns += 1
+                if new_ahead != ahead and new_ahead == "black": # checks if it has spotted a line
+                    turns += 1 # if so then it has turned once
                     
-                    if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"):
-                        left_wheel_motor.setVelocity(0)
+                    if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"): # if its turned far enough
+                        left_wheel_motor.setVelocity(0) # then it stops turning
                         right_wheel_motor.setVelocity(0)
                         
-                        state = "FOLLOW"
+                        state = "FOLLOW" # and swaps to follow mode
                         current_instruction += 1
             
-        if state == "IDLE":
+        if state == "IDLE": # if its idle it stays idle
             left_wheel_motor.setVelocity(0)
             right_wheel_motor.setVelocity(0)
         
-        ahead = get_position(300)
-        position = get_position()
+        ahead = get_position(300) # checks what is coming up
+        position = get_position() # checks where it currently is
         
-    else:
+    else: # if there are no more instructions it stays stopped
         left_wheel_motor.setVelocity(0)
         right_wheel_motor.setVelocity(0)
         
