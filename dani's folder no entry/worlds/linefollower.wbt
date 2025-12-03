@@ -8,16 +8,16 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.04328448210153566 0.9887903124383073 0.14289916597851962 0.5945845742476856
-  position -4.676505688603116 -0.6135562223353144 3.308011119824097
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 7.715429057056669e-05 2.3010329138276053e-07 12.727175629703673
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 RectangleArena {
-  floorSize 4 4
-  floorTileSize 2 2
+  floorSize 8 8
+  floorTileSize 4 4
   floorAppearance Appearance {
     texture ImageTexture {
       url [
@@ -41,7 +41,11 @@ RectangleArena {
   }
 }
 Khepera4 {
-  translation 0 0 -0.000160525
-  rotation 2.0733903667638142e-10 -0.0012830502269598637 0.9999991768907188 1.01503e-06
+  hidden position_0_0 234.31025479856604
+  hidden position_0_1 242.79766245939464
+  hidden rotation_1 0.12933295460700767 -0.1293330203722327 0.9831306915634449 4.695376636473007
+  hidden rotation_2 -0.6862442441268174 0.6862442989494152 -0.24111739788376724 2.6683901961181444
+  translation -2.51023 2.49554 -0.000160525
+  rotation -2.87848e-10 2.86974e-10 1 -1.5696553071795858
   controller "my_controller"
 }

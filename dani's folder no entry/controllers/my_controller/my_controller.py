@@ -2,6 +2,76 @@ from controller import Robot
 
 import time
 
+## Defining Map
+
+# this is a dictionary containing the map data
+# for every intersection on the map, it lists its neighbour for each direction
+# this is used so the robot can trace its current position
+
+MAP = {
+"[0, 0]": {90: [0, 1]},
+"[0, 1]": {0: [1, 1], 90: [0, 6], 270: [0, 0]},
+"[0, 6]": {0: [1, 6], 90: [0, 7], 270: [0, 1]},
+"[0, 7]": {0: [1, 7], 90: [0, 8], 270: [0, 6]},
+"[0, 8]": {0: [1, 8], 270: [0, 7]},
+"[1, 0]": {0: [7, 0], 90: [1, 1]},
+"[1, 1]": {0: [3, 1], 180: [0, 1], 270: [1, 0]},
+"[1, 2]": {0: [2, 2], 90: [1, 6]},
+"[1, 6]": {0: [2, 6], 180: [0, 6], 270: [1, 2]},
+"[1, 7]": {90: [1, 8], 180: [0, 7]},
+"[1, 8]": {0: [2, 8], 180: [0, 8], 270: [1, 7]},
+"[2, 2]": {90: [2, 3], 180: [1, 2]},
+"[2, 3]": {270: [2, 2]},
+"[2, 4]": {0: [3, 4], 90: [2, 6]},
+"[2, 6]": {0: [5, 6], 180: [1, 6], 270: [2, 4]},
+"[2, 7]": {0: [3, 7]},
+"[2, 8]": {180: [1, 8]},
+"[3, 1]": {90: [3, 2], 180: [1, 1]},
+"[3, 2]": {0: [4, 2], 270: [3, 1]},
+"[3, 3]": {0: [4, 3], 90: [3, 4]},
+"[3, 4]": {90: [3, 5], 180: [2, 4], 270: [3, 3]},
+"[3, 5]": {0: [5, 5], 270: [3, 4]},
+"[3, 7]": {90: [3, 8], 180: [2, 7]},
+"[3, 8]": {0: [4, 8], 270: [3, 7]},
+"[4, 1]": {0: [5, 1], 90: [4, 2]},
+"[4, 2]": {180: [3, 2], 270: [4, 1]},
+"[4, 3]": {0: [5, 3], 90: [4, 4], 180: [3, 3]},
+"[4, 4]": {0: [5, 4], 270: [4, 3]},
+"[4, 7]": {0: [5, 7], 90: [4, 8]},
+"[4, 8]": {0: [6, 8], 180: [3, 8], 270: [4, 7]},
+"[5, 1]": {90: [5, 2], 180: [4, 1]},
+"[5, 2]": {0: [6, 2], 90: [5, 3], 270: [5, 1]},
+"[5, 3]": {180: [4, 3], 270: [5, 2]},
+"[5, 4]": {0: [6, 4], 90: [5, 5], 180: [4, 4]},
+"[5, 5]": {90: [5, 6], 180: [3, 5], 270: [5, 4]},
+"[5, 6]": {90: [5, 7], 180: [2, 6], 270: [5, 5]},
+"[5, 7]": {180: [4, 7], 270: [5, 6]},
+"[6, 1]": {0: [7, 1], 90: [6, 2]},
+"[6, 2]": {180: [5, 2], 270: [6, 1]},
+"[6, 3]": {90: [6, 4]},
+"[6, 4]": {90: [6, 6], 180: [5, 4], 270: [6, 3]},
+"[6, 6]": {0: [7, 6], 90: [6, 8], 270: [6, 4]},
+"[6, 8]": {0: [8, 8], 180: [4, 8], 270: [6, 6]},
+"[7, 0]": {90: [7, 1], 180: [1, 0]},
+"[7, 1]": {0: [8, 1], 90: [7, 2], 180: [6, 1], 270: [7, 0]},
+"[7, 2]": {0: [8, 2], 90: [7, 4], 270: [7, 1]},
+"[7, 4]": {0: [8, 4], 90: [7, 6], 270: [7, 2]},
+"[7, 6]": {0: [8, 6], 180: [6, 6], 270: [7, 4]},
+"[7, 7]": {0: [8, 7]},
+"[8, 0]": {90: [8, 1]},
+"[8, 1]": {90: [8, 2], 180: [7, 1], 270: [8, 0]},
+"[8, 2]": {180: [7, 2], 270: [8, 1]},
+"[8, 3]": {90: [8, 4]},
+"[8, 4]": {90: [8, 6], 180: [7, 4], 270: [8, 3]},
+"[8, 6]": {90: [8, 7], 180: [7, 6], 270: [8, 4]},
+"[8, 7]": {90: [8, 8], 180: [7, 7], 270: [8, 6]},
+"[8, 8]": {180: [6, 8], 270: [8, 7]}
+}
+
+CHARGERS = [[0, 0], [6, 3]] # green spots
+
+ENDS = [[2, 3], [2, 7], [2, 8], [8, 0], [8, 3], [7, 7]] # blue spots
+
 ## Initialisation ## 
 robot = Robot()
 
@@ -124,6 +194,20 @@ def adjustment():
             r += camera.imageGetGray(img, cam_width, x, 400)
             
     return l, r
+    
+def trace(location, direction, turn): 
+    # lets the robot know where it is
+    # more specifically, it updates its location to be the neighbour of its current position, in the direction its heading
+
+    if turn == "R":
+        direction += 90
+    elif turn == "L":
+        direction -= 90
+    elif turn == "U":
+        direction += 180
+    direction = direction % 360
+    
+    return MAP[str(location)][direction], direction
 
 ## Main ##
 
@@ -134,7 +218,7 @@ state = "TURN"
 ## "STOPPING" - transition from FOLLOW to TURN
 ## "IDLE" - unmoving
 
-instructions = "FFRRRRLRFRRRLLFLLFLLLS"
+instructions = "FLLRRFFFLRRS"
 # "instructions" can be made up of the following characters:
 ## "F" - move forwards at a spot
 ## "R" - turn right at a spot
@@ -152,6 +236,16 @@ robot.step(timestep)
 ahead = get_position(300)
 position = get_position()
 # getting initial values of ahead and position
+
+direction = 90
+# direction value used when tracing own steps
+## represents angle in degrees
+## 0 is facing right, 90 down, etc.
+
+location = [0, 0]
+# for tracing own steps, maybe to be sent to HQ?
+## x, y value from top-left corner
+## for both direction and location, when i refer to "right, top left, etc." I mean when alligned to the floor's top view
 
 start_time = time.time()
 
@@ -218,6 +312,8 @@ while robot.step(timestep) != -1:
                 
                     state = "FOLLOW"
                     current_instruction += 1
+                        
+                    location, direction = trace(location, direction, "F")
             
         if state == "TURN": # if it is currently in the middle of turning
         
@@ -229,9 +325,13 @@ while robot.step(timestep) != -1:
                 print(instructions)
                 print(time.time() - start_time)
                 
+                print(location)
+                
             if ci == "F": # if instruction is to go forwards, change to the follow state
                 state = "FOLLOW"
                 current_instruction += 1
+                        
+                location, direction = trace(location, direction, ci)
                 
             if ci == "R" or ci == "U": # if instruction is to turn right or uturn, increases motor speed to do so
             
@@ -255,6 +355,8 @@ while robot.step(timestep) != -1:
                         
                         state = "FOLLOW" # and swaps to follow mode
                         current_instruction += 1
+                        
+                        location, direction = trace(location, direction, ci)
             
         if state == "IDLE": # if its idle it stays idle
             left_wheel_motor.setVelocity(0)
