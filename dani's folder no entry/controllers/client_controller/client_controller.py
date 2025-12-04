@@ -1,48 +1,74 @@
-# client.py
 from controller import Robot
-import json, time
+import json
+import time
 
 robot = Robot()
 timestep = int(robot.getBasicTimeStep())
-MY_ID = robot.getName() or "client1"   # uses robot name in Scene Tree if set
+MY_ID = robot.getName() or "client"
+
+# devices
 emitter = robot.getDevice("emitter")
 receiver = robot.getDevice("receiver")
 if receiver:
     receiver.enable(timestep)
 
-print(f"[{MY_ID}] client started. Will send two requests 5 seconds apart.")
+print(f"[{MY_ID}] client started. timestep={timestep} ms")
 
-sent = 0
+# schedule: list of events with 'time' as seconds offset from start,
+# plus request_id, pickup_node, drop_node, weight, priority
+schedule = [
+    {"time": 1.0, "request_id": "req-01", "pickup": "0,6", "drop": "3,4", "weight": 0.5, "priority": 1},
+    {"time": 6.0, "request_id": "req-02", "pickup": "1,6", "drop": "3,8", "weight": 1.0, "priority": 2}
+]
+
+for ev in schedule:
+    ev["sent"] = False
+
 start_time = time.time()
-next_send_time = start_time + 1.0  # send first after 1 second
-interval = 5.0
+end_time = start_time + max(ev["time"] for ev in schedule) + 5.0
 
-def send_request(req_id):
-    payload = {"type":"request", "robot_id":MY_ID, "request_id":req_id,
-               "payload": {"task":"test"}, "timestamp":time.time()}
-    emitter.send(json.dumps(payload).encode('utf-8'))
-    print(f"[{MY_ID}] sent request {req_id}")
+def send_request(ev):
+    if emitter is None:
+        print(f"[{MY_ID}] ERROR: emitter not found, cannot send {ev['request_id']}")
+        return
+    msg = {
+        "type": "request",
+        "request_id": ev["request_id"],
+        "pickup_node": ev["pickup"],
+        "drop_node": ev["drop"],
+        "weight": ev["weight"],
+        "priority": ev["priority"],
+        "timestamp": time.time()
+    }
+    try:
+        emitter.send(json.dumps(msg).encode("utf-8"))
+        print(f"[{MY_ID}] sent {ev['request_id']} at +{time.time()-start_time:.2f}s -> {msg['payload']}")
+    except Exception as e:
+        print(f"[{MY_ID}] emitter.send failed for {ev['request_id']}: {e}")
 
-# main loop: send two requests spaced by interval, then idle and print any incoming assigns
+# main loop
 while robot.step(timestep) != -1:
     now = time.time()
-    if sent < 2 and now >= next_send_time:
-        sent += 1
-        send_request(f"req-{sent:02d}")
-        next_send_time = now + interval
+    elapsed = now - start_time
 
-    # optionally listen for replies/acks (client's receiver)
-    if receiver and receiver.getQueueLength() > 0:
-        raw = receiver.getString()
-        receiver.nextPacket()
-        try:
-            s = raw
-            msg = json.loads(s)
-        except Exception:
-            msg = {"raw": str(raw)}
-        print(f"[{MY_ID}] received message:", msg)
+    # send scheduled events
+    for ev in schedule:
+        if not ev["sent"] and elapsed >= ev["time"]:
+            send_request(ev)
+            ev["sent"] = True
 
-    # stop after some time to keep the test short
-    if now - start_time > 20.0:
-        print(f"[{MY_ID}] done test run.")
+    # receive incoming messages
+    if receiver:
+        while receiver.getQueueLength() > 0:
+            raw = receiver.getString()
+            receiver.nextPacket()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                msg = {"raw": str(raw)}
+            print(f"[{MY_ID}] received message: {msg}")
+
+    # finish when done
+    if now >= end_time and all(ev["sent"] for ev in schedule):
+        print(f"[{MY_ID}] finished schedule; exiting.")
         break

@@ -206,11 +206,11 @@ def trace(location, direction, turn):
     elif turn == "U":
         direction += 180
     direction = direction % 360
-    
+    print(direction,location)
     return MAP[str(location)][direction], direction
 
 ## Main ##
-def follow_instructions(instructions):
+def follow_instructions(instructions,location):
 
     state = "TURN"
     # "state" can be one of the following values:
@@ -243,7 +243,7 @@ def follow_instructions(instructions):
     ## represents angle in degrees
     ## 0 is facing right, 90 down, etc.
     
-    location = [0, 0]
+    #location = [0, 0]
     # for tracing own steps, maybe to be sent to HQ?
     ## x, y value from top-left corner
     ## for both direction and location, when i refer to "right, top left, etc." I mean when alligned to the floor's top view
@@ -372,6 +372,7 @@ def follow_instructions(instructions):
             
 print(robot.getName())
 while robot.step(timestep) != -1:
+
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
         print("Received:", msg)
@@ -383,7 +384,8 @@ while robot.step(timestep) != -1:
             data = {"instructions": raw}
         if(data.get("robot_id")==robot.getName()):
             instructions = data.get("instructions")
-            follow_instructions(instructions)
+            location=data.get("location")
+            follow_instructions(instructions,location)
         receiver.nextPacket()
 
 # Enter here exit cleanup code.
