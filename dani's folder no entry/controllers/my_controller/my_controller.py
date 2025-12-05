@@ -195,10 +195,20 @@ def adjustment():
             
     return l, r
     
+def send_status_update(robot_id, loc, orient, state="busy_loaded"):
+    msg = {
+        "type": "status",
+        "robot_id": robot_id,
+        "location": loc,
+        "orientation": orient,  # <--- NEW FIELD
+        "battery": 100.0,
+        "state": state,
+        "timestamp": time.time()
+    }
+    emitter.send(json.dumps(msg).encode("utf-8"))
+    
 def trace(location, direction, turn): 
-    # lets the robot know where it is
-    # more specifically, it updates its location to be the neighbour of its current position, in the direction its heading
-
+    # 1. Update Direction
     if turn == "R":
         direction += 90
     elif turn == "L":
@@ -206,12 +216,59 @@ def trace(location, direction, turn):
     elif turn == "U":
         direction += 180
     direction = direction % 360
-    print(direction,location)
-    return MAP[str(location)][direction], direction
+    
+    # 2. Update Location (Safe Mode)
+    loc_str = str(location)
+    
+    # Check if the current location exists and has a path in that direction
+    if loc_str in MAP and direction in MAP[loc_str]:
+        print(f"Tracing: {location} -> {MAP[loc_str][direction]} (Dir: {direction})")
+        return MAP[loc_str][direction], direction
+    else:
+        # If invalid move (wall/dead end), print warning and STAY PUT
+        print(f"WARNING: Wall detected at {location} facing {direction}. Staying put.")
+        return location, direction
+def wait_for_supervisor_config():
+    """
+    Blocks execution until initial state is received from Supervisor.
+    """
+    print(f"[{robot.getName()}] Requesting config from Supervisor...")
+    
+    # 1. Send the "I am awake" message
+    msg = {
+        "type": "startup", 
+        "robot_id": robot.getName(), 
+        "timestamp": time.time()
+    }
+    emitter.send(json.dumps(msg).encode("utf-8"))
+    
+    # 2. Wait loop
+    while robot.step(timestep) != -1:
+        if receiver.getQueueLength() > 0:
+            raw = receiver.getString()
+            receiver.nextPacket()
+            try:
+                data = json.loads(raw)
+                # Check if this is the response intended for ME
+                if data.get("type") == "init" and data.get("robot_id") == robot.getName():
+                    
+                    loc = data.get("location")
+                    ori = data.get("orientation")
+                    
+                    print(f"[{robot.getName()}] Config received: Loc={loc}, Dir={ori}")
+                    return loc, ori
+                    
+            except json.JSONDecodeError:
+                pass
+                
+    return [0, 0], 90 # Fallback (should not happen)
 
 ## Main ##
-def follow_instructions(instructions,location):
-
+current_location = [0, 0] 
+current_direction = 90
+def follow_instructions(instructions,start_loc, start_dir):
+    location = start_loc
+    direction = start_dir
     state = "TURN"
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
@@ -249,7 +306,7 @@ def follow_instructions(instructions,location):
     ## for both direction and location, when i refer to "right, top left, etc." I mean when alligned to the floor's top view
     
     start_time = time.time()
-    
+    last_sent_node = None
     while robot.step(timestep) != -1:
     
         if len(instructions) > 0 and current_instruction < len(instructions):
@@ -325,7 +382,7 @@ def follow_instructions(instructions,location):
                     current_instruction += 1
                     print(instructions)
                     print(time.time() - start_time)
-                    
+                    send_status_update(robot.getName(), location, direction, "idle")
                     print(location)
                     
                 if ci == "F": # if instruction is to go forwards, change to the follow state
@@ -333,7 +390,7 @@ def follow_instructions(instructions,location):
                     current_instruction += 1
                             
                     location, direction = trace(location, direction, ci)
-                    
+                    send_status_update(robot.getName(), location, direction, "busy_loaded")
                 if ci == "R" or ci == "U": # if instruction is to turn right or uturn, increases motor speed to do so
                 
                     left_wheel_motor.setVelocity(10)
@@ -358,7 +415,8 @@ def follow_instructions(instructions,location):
                             current_instruction += 1
                             
                             location, direction = trace(location, direction, ci)
-                
+                            send_status_update(robot.getName(), location, "busy_loaded")
+                            send_status_update(robot.getName(), location, direction, "busy_loaded")
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
@@ -366,26 +424,50 @@ def follow_instructions(instructions,location):
             ahead = get_position(300) # checks what is coming up
             position = get_position() # checks where it currently is
             
-        else: # if there are no more instructions it stays stopped
+        else: # if there are no more instructions
             left_wheel_motor.setVelocity(0)
             right_wheel_motor.setVelocity(0)
             
+            # ... (existing spot check logic) ...
+            
+            # spot = position 
+            # if spot in ("red", "green", "blue") or state == "IDLE":
+                #FIXED: Protocol must match Supervisor "status" format
+                # node_key = f"{int(location[0])},{int(location[1])}"
+                
+                # if node_key != last_sent_node:
+                    # msg = {
+                        # "type": "status",           # CHANGED from "location"
+                        # "robot_id": robot.getName(),
+                        # "location": location,       # CHANGED to list [x,y]
+                        # "battery": 100.0,           # Added dummy battery
+                        # "state": "idle",            # Added state
+                        # "timestamp": time.time()
+                    # }
+                    # emitter.send(json.dumps(msg).encode("utf-8"))
+                    # last_sent_node = node_key
+            
+            # FIXED: Break the loop so the robot can hear the next assignment!
+            return location, direction
+            
 print(robot.getName())
+current_location, current_direction = wait_for_supervisor_config()
 while robot.step(timestep) != -1:
 
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
-        print("Received:", msg)
-        
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:
             # Convert plain string into an object with instructions
             data = {"instructions": raw}
-        if(data.get("robot_id")==robot.getName()):
+        print("the message is"+msg)
+        if(data.get("type")!="location" and data.get("robot_id")==robot.getName()):
+            #print(data)
             instructions = data.get("instructions")
             location=data.get("location")
-            follow_instructions(instructions,location)
+            print("start following")
+            current_location, current_direction = follow_instructions(instructions, current_location, current_direction)
         receiver.nextPacket()
 
 # Enter here exit cleanup code.

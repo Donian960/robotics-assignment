@@ -14,13 +14,30 @@ if receiver:
 
 print(f"[{MY_ID}] client started. timestep={timestep} ms")
 
+NODE_HASH = {
+    "London": "0,0",
+    "Berlin": "6,3",
+    "Paris": "2,3",
+    "Rome": "2,7",
+    "Madrid": "2,8",
+    "Lisbon": "8,0",
+    "Vienna": "8,3",
+    "Prague": "7,7",
+}
+
+
 # schedule: list of events with 'time' as seconds offset from start,
 # plus request_id, pickup_node, drop_node, weight, priority
 schedule = [
-    {"time": 1.0, "request_id": "req-01", "pickup": "0,6", "drop": "3,4", "weight": 0.5, "priority": 1},
-    {"time": 6.0, "request_id": "req-02", "pickup": "1,6", "drop": "3,8", "weight": 1.0, "priority": 2}
+    {"time": 1.0, "request_id": "req-01", "pickup": "Paris", "drop": "2,7", "weight": 0.5, "priority": 1},
+    {"time": 2.0, "request_id": "req-02", "pickup": "4,2", "drop": "5,1", "weight": 1.0, "priority": 2},
+    {"time": 9.0, "request_id": "req-03", "pickup": "2,3", "drop": "2,7", "weight": 0.5, "priority": 1}
 ]
-
+for req in schedule:
+    if req["pickup"] in NODE_HASH:
+        req["pickup"] = NODE_HASH[req["pickup"]]
+    if req["drop"] in NODE_HASH:
+        req["drop"] = NODE_HASH[req["drop"]]
 for ev in schedule:
     ev["sent"] = False
 
@@ -29,8 +46,9 @@ end_time = start_time + max(ev["time"] for ev in schedule) + 5.0
 
 def send_request(ev):
     if emitter is None:
-        print(f"[{MY_ID}] ERROR: emitter not found, cannot send {ev['request_id']}")
+        print(f"[{MY_ID}] ERROR: emitter not found")
         return
+        
     msg = {
         "type": "request",
         "request_id": ev["request_id"],
@@ -40,12 +58,13 @@ def send_request(ev):
         "priority": ev["priority"],
         "timestamp": time.time()
     }
+    
     try:
         emitter.send(json.dumps(msg).encode("utf-8"))
-        print(f"[{MY_ID}] sent {ev['request_id']} at +{time.time()-start_time:.2f}s -> {msg['payload']}")
+        # FIX: Removed msg['payload']
+        print(f"[{MY_ID}] sent {ev['request_id']} at +{time.time()-start_time:.2f}s")
     except Exception as e:
         print(f"[{MY_ID}] emitter.send failed for {ev['request_id']}: {e}")
-
 # main loop
 while robot.step(timestep) != -1:
     now = time.time()
@@ -66,7 +85,8 @@ while robot.step(timestep) != -1:
                 msg = json.loads(raw)
             except Exception:
                 msg = {"raw": str(raw)}
-            print(f"[{MY_ID}] received message: {msg}")
+            if(msg.get("type")!="location"):
+                print(f"[{MY_ID}] received message: {msg}")
 
     # finish when done
     if now >= end_time and all(ev["sent"] for ev in schedule):

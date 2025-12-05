@@ -1,88 +1,90 @@
-# controllers/supervisor_controller/supervisor_controller.py
-"""
-Minimal Supervisor Server for request -> assignment.
-
-Features:
-- Builds a graph from MAP (string keys like "[0, 6]").
-- Listens for 'status' (robot -> server) and 'request' (client -> server).
-- Does basic allocation (distance cost) and sends an 'assign' message with path.
-- Uses getDevice(...) and receiver.getString() for Webots compatibility.
-"""
-
 from controller import Supervisor
-import json, time, math
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+import json
+import math
 import networkx as nx
+import heapq
 import re
+from dataclasses import dataclass, field
+from typing import Dict, Optional, List, Tuple
 
+# --- Webots Initialization (Must be first for time sync) ---
+sup = Supervisor()
+timestep = int(sup.getBasicTimeStep())
+receiver = sup.getDevice("receiver")
+emitter  = sup.getDevice("emitter")
+receiver.enable(timestep)
 
+# --- Configuration Constants ---
+GRID_CELL_SIZE = 1.0
+SNAP_THRESHOLD = 0.1       # Metres (Fixed: was 0, needs tolerance)
+SAFE_BATTERY_THRESHOLD = 10.0  
+BATTERY_DRAIN_IDLE = 0.05      
+BATTERY_DRAIN_MOVE = 0.25      
+AVG_ROBOT_SPEED = 0.15         
+
+# Map Data
 MAP = {
-"[0, 0]": {90: [0, 1]},
-"[0, 1]": {0: [1, 1], 90: [0, 6], 270: [0, 0]},
-"[0, 6]": {0: [1, 6], 90: [0, 7], 270: [0, 1]},
-"[0, 7]": {0: [1, 7], 90: [0, 8], 270: [0, 6]},
-"[0, 8]": {0: [1, 8], 270: [0, 7]},
-"[1, 0]": {0: [7, 0], 90: [1, 1]},
-"[1, 1]": {0: [3, 1], 180: [0, 1], 270: [1, 0]},
-"[1, 2]": {0: [2, 2], 90: [1, 6]},
-"[1, 6]": {0: [2, 6], 180: [0, 6], 270: [1, 2]},
-"[1, 7]": {90: [1, 8], 180: [0, 7]},
-"[1, 8]": {0: [2, 8], 180: [0, 8], 270: [1, 7]},
-"[2, 2]": {90: [2, 3], 180: [1, 2]},
-"[2, 3]": {270: [2, 2]},
-"[2, 4]": {0: [3, 4], 90: [2, 6]},
-"[2, 6]": {0: [5, 6], 180: [1, 6], 270: [2, 4]},
-"[2, 7]": {0: [3, 7]},
-"[2, 8]": {180: [1, 8]},
-"[3, 1]": {90: [3, 2], 180: [1, 1]},
-"[3, 2]": {0: [4, 2], 270: [3, 1]},
-"[3, 3]": {0: [4, 3], 90: [3, 4]},
-"[3, 4]": {90: [3, 5], 180: [2, 4], 270: [3, 3]},
-"[3, 5]": {0: [5, 5], 270: [3, 4]},
-"[3, 7]": {90: [3, 8], 180: [2, 7]},
-"[3, 8]": {0: [4, 8], 270: [3, 7]},
-"[4, 1]": {0: [5, 1], 90: [4, 2]},
-"[4, 2]": {180: [3, 2], 270: [4, 1]},
-"[4, 3]": {0: [5, 3], 90: [4, 4], 180: [3, 3]},
-"[4, 4]": {0: [5, 4], 270: [4, 3]},
-"[4, 7]": {0: [5, 7], 90: [4, 8]},
-"[4, 8]": {0: [6, 8], 180: [3, 8], 270: [4, 7]},
-"[5, 1]": {90: [5, 2], 180: [4, 1]},
-"[5, 2]": {0: [6, 2], 90: [5, 3], 270: [5, 1]},
-"[5, 3]": {180: [4, 3], 270: [5, 2]},
-"[5, 4]": {0: [6, 4], 90: [5, 5], 180: [4, 4]},
-"[5, 5]": {90: [5, 6], 180: [3, 5], 270: [5, 4]},
-"[5, 6]": {90: [5, 7], 180: [2, 6], 270: [5, 5]},
-"[5, 7]": {180: [4, 7], 270: [5, 6]},
-"[6, 1]": {0: [7, 1], 90: [6, 2]},
-"[6, 2]": {180: [5, 2], 270: [6, 1]},
-"[6, 3]": {90: [6, 4]},
-"[6, 4]": {90: [6, 6], 180: [5, 4], 270: [6, 3]},
-"[6, 6]": {0: [7, 6], 90: [6, 8], 270: [6, 4]},
-"[6, 8]": {0: [8, 8], 180: [4, 8], 270: [6, 6]},
-"[7, 0]": {90: [7, 1], 180: [1, 0]},
-"[7, 1]": {0: [8, 1], 90: [7, 2], 180: [6, 1], 270: [7, 0]},
-"[7, 2]": {0: [8, 2], 90: [7, 4], 270: [7, 1]},
-"[7, 4]": {0: [8, 4], 90: [7, 6], 270: [7, 2]},
-"[7, 6]": {0: [8, 6], 180: [6, 6], 270: [7, 4]},
-"[7, 7]": {0: [8, 7]},
-"[8, 0]": {90: [8, 1]},
-"[8, 1]": {90: [8, 2], 180: [7, 1], 270: [8, 0]},
-"[8, 2]": {180: [7, 2], 270: [8, 1]},
-"[8, 3]": {90: [8, 4]},
-"[8, 4]": {90: [8, 6], 180: [7, 4], 270: [8, 3]},
-"[8, 6]": {90: [8, 7], 180: [7, 6], 270: [8, 4]},
-"[8, 7]": {90: [8, 8], 180: [7, 7], 270: [8, 6]},
-"[8, 8]": {180: [6, 8], 270: [8, 7]}
+    "[0, 0]": {90: [0, 1]},
+    "[0, 1]": {0: [1, 1], 90: [0, 6], 270: [0, 0]},
+    "[0, 6]": {0: [1, 6], 90: [0, 7], 270: [0, 1]},
+    "[0, 7]": {0: [1, 7], 90: [0, 8], 270: [0, 6]},
+    "[0, 8]": {0: [1, 8], 270: [0, 7]},
+    "[1, 0]": {0: [7, 0], 90: [1, 1]},
+    "[1, 1]": {0: [3, 1], 180: [0, 1], 270: [1, 0]},
+    "[1, 2]": {0: [2, 2], 90: [1, 6]},
+    "[1, 6]": {0: [2, 6], 180: [0, 6], 270: [1, 2]},
+    "[1, 7]": {90: [1, 8], 180: [0, 7]},
+    "[1, 8]": {0: [2, 8], 180: [0, 8], 270: [1, 7]},
+    "[2, 2]": {90: [2, 3], 180: [1, 2]},
+    "[2, 3]": {270: [2, 2]},
+    "[2, 4]": {0: [3, 4], 90: [2, 6]},
+    "[2, 6]": {0: [5, 6], 180: [1, 6], 270: [2, 4]},
+    "[2, 7]": {0: [3, 7]},
+    "[2, 8]": {180: [1, 8]},
+    "[3, 1]": {90: [3, 2], 180: [1, 1]},
+    "[3, 2]": {0: [4, 2], 270: [3, 1]},
+    "[3, 3]": {0: [4, 3], 90: [3, 4]},
+    "[3, 4]": {90: [3, 5], 180: [2, 4], 270: [3, 3]},
+    "[3, 5]": {0: [5, 5], 270: [3, 4]},
+    "[3, 7]": {90: [3, 8], 180: [2, 7]},
+    "[3, 8]": {0: [4, 8], 270: [3, 7]},
+    "[4, 1]": {0: [5, 1], 90: [4, 2]},
+    "[4, 2]": {180: [3, 2], 270: [4, 1]},
+    "[4, 3]": {0: [5, 3], 90: [4, 4], 180: [3, 3]},
+    "[4, 4]": {0: [5, 4], 270: [4, 3]},
+    "[4, 7]": {0: [5, 7], 90: [4, 8]},
+    "[4, 8]": {0: [6, 8], 180: [3, 8], 270: [4, 7]},
+    "[5, 1]": {90: [5, 2], 180: [4, 1]},
+    "[5, 2]": {0: [6, 2], 90: [5, 3], 270: [5, 1]},
+    "[5, 3]": {180: [4, 3], 270: [5, 2]},
+    "[5, 4]": {0: [6, 4], 90: [5, 5], 180: [4, 4]},
+    "[5, 5]": {90: [5, 6], 180: [3, 5], 270: [5, 4]},
+    "[5, 6]": {90: [5, 7], 180: [2, 6], 270: [5, 5]},
+    "[5, 7]": {180: [4, 7], 270: [5, 6]},
+    "[6, 1]": {0: [7, 1], 90: [6, 2]},
+    "[6, 2]": {180: [5, 2], 270: [6, 1]},
+    "[6, 3]": {90: [6, 4]},
+    "[6, 4]": {90: [6, 6], 180: [5, 4], 270: [6, 3]},
+    "[6, 6]": {0: [7, 6], 90: [6, 8], 270: [6, 4]},
+    "[6, 8]": {0: [8, 8], 180: [4, 8], 270: [6, 6]},
+    "[7, 0]": {90: [7, 1], 180: [1, 0]},
+    "[7, 1]": {0: [8, 1], 90: [7, 2], 180: [6, 1], 270: [7, 0]},
+    "[7, 2]": {0: [8, 2], 90: [7, 4], 270: [7, 1]},
+    "[7, 4]": {0: [8, 4], 90: [7, 6], 270: [7, 2]},
+    "[7, 6]": {0: [8, 6], 180: [6, 6], 270: [7, 4]},
+    "[7, 7]": {0: [8, 7]},
+    "[8, 0]": {90: [8, 1]},
+    "[8, 1]": {90: [8, 2], 180: [7, 1], 270: [8, 0]},
+    "[8, 2]": {180: [7, 2], 270: [8, 1]},
+    "[8, 3]": {90: [8, 4]},
+    "[8, 4]": {90: [8, 6], 180: [7, 4], 270: [8, 3]},
+    "[8, 6]": {90: [8, 7], 180: [7, 6], 270: [8, 4]},
+    "[8, 7]": {90: [8, 8], 180: [7, 7], 270: [8, 6]},
+    "[8, 8]": {180: [6, 8], 270: [8, 7]}
 }
 
-CHARGERS = [[0, 0], [6, 3]] # green spots
+CHARGERS = ["0,0", "6,3"] 
 
-ENDS = [[2, 3], [2, 7], [2, 8], [8, 0], [8, 3], [7, 7]] # blue spots
-
-
-# minimal dataclasses used by the supervisor
 @dataclass
 class Task:
     id: str
@@ -92,372 +94,304 @@ class Task:
     priority: int
     request_time: float = 0.0
     assigned_robot: Optional[str] = None
-    assign_time: Optional[float] = None
     status: str = "waiting"
 
-@dataclass
-class RobotState:
-    id: str
-    node: Optional[str] = None   # current node key like "[0, 6]"
-    battery: float = 100.0
-    max_capacity: float = 2.0
-    state: str = "idle"         # idle, busy
+# --- Helper Functions ---
 
-# grid and snap constants — tune to your world
-GRID_CELL_SIZE = 1.0     # meters between grid intersections
-SNAP_THRESHOLD = 0.4     # meters max distance to snap to an intersection
-
-
-# helper: turn a "x,y" or other node rep into integer pair
-def parse_key_to_xy(k):
-    # accepts "x,y", "[x, y]" , (x,y), [x,y]
+def fmt_key(k) -> str:
+    """Standardizes keys to 'x,y' string format."""
+    if isinstance(k, str):
+        k = k.replace("[", "").replace("]", "").replace(" ", "")
+        return k
     if isinstance(k, (list, tuple)):
-        return int(k[0]), int(k[1])
-    s = str(k)
-    nums = re.findall(r"-?\d+", s)
-    if len(nums) >= 2:
-        return int(nums[0]), int(nums[1])
-    raise ValueError("bad node key: " + str(k))
+        return f"{int(k[0])},{int(k[1])}"
+    return str(k)
 
-# map vector delta to absolute heading (0=right, 90=down, 180=left, 270=up)
-def vector_to_heading(dx, dy):
-    # assumes moves between immediate adjacent grid nodes (dx,dy in {-1,0,1} scaled by grid)
-    # direction convention: right=(1,0)->0, down=(0,1)->90, left=(-1,0)->180, up=(0,-1)->270
-    if dx == 1 and dy == 0:
-        return 0
-    if dx == 0 and dy == 1:
-        return 90
-    if dx == -1 and dy == 0:
-        return 180
-    if dx == 0 and dy == -1:
-        return 270
-    # if not unit-step, normalize to sign
-    sx = 0 if dx == 0 else (1 if dx > 0 else -1)
-    sy = 0 if dy == 0 else (1 if dy > 0 else -1)
-    if sx == 1 and sy == 0: return 0
-    if sx == 0 and sy == 1: return 90
-    if sx == -1 and sy == 0: return 180
-    if sx == 0 and sy == -1: return 270
-    raise ValueError(f"non-axis move dx={dx},dy={dy}")
+def parse_xy(k: str) -> Tuple[int, int]:
+    """Parses 'x,y' string back to integers."""
+    parts = k.split(',')
+    return int(parts[0]), int(parts[1])
 
-# normalize angle to 0..359
-def norm(a):
-    a = int(round(a)) % 360
-    return a
+def build_graph(map_data):
+    """Builds NetworkX graph."""
+    g = nx.Graph()
+    coords = {}
+    for key in map_data:
+        str_key = fmt_key(key)
+        x, y = parse_xy(str_key)
+        coords[str_key] = (float(x), float(y))
+        g.add_node(str_key)
+        
+    for key, neighbors in map_data.items():
+        u = fmt_key(key)
+        for _, dest in neighbors.items():
+            v = fmt_key(dest)
+            if v not in coords:
+                x, y = parse_xy(v)
+                coords[v] = (float(x), float(y))
+                g.add_node(v)
+            if not g.has_edge(u, v):
+                dist = math.dist(coords[u], coords[v])
+                g.add_edge(u, v, length=dist)
+    return g, coords
 
-# convert delta heading into turn character(s)
-def heading_delta_to_instruction(current_h, desired_h):
-    d = (desired_h - current_h) % 360
-    if d == 0:
-        return "F", desired_h
-    if d == 90:
-        return "R", desired_h
-    if d == 270:
-        # -90 equivalent to 270 mod 360 -> left turn
-        return "L", desired_h
-    if d == 180:
-        # use U (or "RR" could be used)
-        return "U", desired_h
-    # For safety, choose the shortest turn: if d==45/135 etc map to nearest cardinal
-    # but this shouldn't happen on grid-aligned map
-    # fallback:
-    if d < 180:
-        return "R", desired_h
-    else:
-        return "L", desired_h
+def get_path_length(g, path):
+    if not path or len(path) < 2: return 0.0
+    return sum(g[path[i]][path[i+1]]['length'] for i in range(len(path)-1))
 
-def path_nodes_to_instructions(path, start_heading=None, append_stop=False):
-    """
-    path: list of node keys in your 'x,y' string format, e.g. ["0,0","0,1","0,6",...]
-    start_heading: optional int heading (0,90,180,270). If None, assume facing first segment.
-    append_stop: if True, append 'S' at the end.
-    returns: instructions string (e.g. "FLLRLS")
-    """
-    if not path or len(path) < 2:
-        return "S" if append_stop else ""
-    # parse nodes to integer coords
-    coords = [parse_key_to_xy(p) for p in path]
-    # compute headings per segment
-    seg_headings = []
-    for i in range(len(coords) - 1):
-        x0, y0 = coords[i]
-        x1, y1 = coords[i+1]
-        dx = x1 - x0
-        dy = y1 - y0
-        # if your grid uses inverted y (top-left origin), adapt here accordingly.
-        h = vector_to_heading(dx, dy)
-        seg_headings.append(h)
+def get_heading(current_node, next_node):
+    """Calculates heading 0,90,180,270 based on grid movement."""
+    cx, cy = parse_xy(current_node)
+    nx, ny = parse_xy(next_node)
+    dx, dy = nx - cx, ny - cy
+    
+    # FIX: Use inequalities (> 0) instead of (== 1) to handle jumps > 1m
+    if dx > 0: return 0
+    if dx < 0: return 180
+    if dy > 0: return 90
+    if dy < 0: return 270
+    return 0 
 
-    # initial heading
-    if start_heading is None:
-        # assume facing first segment direction
-        current_h = seg_headings[0]
-    else:
-        current_h = norm(start_heading)
+def generate_instructions(path, start_orient):
+    """Generates F, L, R, U instructions."""
+    if not path or len(path) < 2: return "S"
+    
+    instr = []
+    curr_h = start_orient
+    
+    for i in range(len(path) - 1):
+        target_h = get_heading(path[i], path[i+1])
+        diff = (target_h - curr_h) % 360
+        
+        if diff == 0: instr.append("F")
+        elif diff == 90: instr.append("R")
+        elif diff == 270: instr.append("L")
+        elif diff == 180: instr.append("U")
+        else: instr.append("F") 
+        
+        curr_h = target_h
+        
+    instr.append("S")
+    return "".join(instr)
 
-    instructions = []
-    for desired_h in seg_headings:
-        instr, new_h = heading_delta_to_instruction(current_h, desired_h)
-        instructions.append(instr)
-        # after performing the turn, robot will traverse the segment and now face desired_h
-        current_h = norm(new_h)
+def find_nearest_node(x, y, coords):
+    """Finds nearest node. Returns (node_key, distance)."""
+    best_node = None
+    min_dist = float('inf')
+    for node, (nx, ny) in coords.items():
+        d = math.dist((x, y), (nx, ny))
+        if d < min_dist:
+            min_dist = d
+            best_node = node
+    return best_node, min_dist
 
-    if append_stop:
-        instructions.append("S")
-    return "".join(instructions)
+# --- State Initialization ---
 
+G, COORDS = build_graph(MAP)
+print(f"Graph built with {len(G.nodes)} nodes.")
 
-def snap_location_to_node(x: float, y: float) -> Optional[str]:
-    gx = int(round(x / GRID_CELL_SIZE))
-    gy = int(round(y / GRID_CELL_SIZE))
-    candidate = str([gx, gy])   # matches keys in MAP
-    # distance from continuous pose to candidate node center
-    dx = x - (gx * GRID_CELL_SIZE)
-    dy = y - (gy * GRID_CELL_SIZE)
-    dist = math.hypot(dx, dy)
-    if dist <= SNAP_THRESHOLD and candidate in MAP:
-        return candidate
-    return None
+# Use sup.getTime() for initial timestamps to match Webots simulation time
+current_sim_time = sup.getTime()
 
-# fallback: nearest node by coords (COORDS should map node_key -> (mx,my))
-def nearest_node_from_xy(x: float, y: float):
-    best = None; bd = float('inf')
-    for key, (cx, cy) in COORDS.items():
-        d = math.hypot(x - cx, y - cy)
-        if d < bd:
-            bd = d; best = key
-    return best, bd
-
-def node_from_xy(x, y):
-    key = f"[{int(x)}, {int(y)}]"
-    return key if key in MAP else None
-
-def node_to_key_str(n):
-    """
-    Normalize any form of coordinate (tuple/list/string) into 'x,y' string.
-    """
-    if isinstance(n, (list, tuple)):
-        return f"{int(n[0])},{int(n[1])}"
-
-    s = str(n)
-    nums = re.findall(r"-?\d+", s)
-    if len(nums) >= 2:
-        return f"{int(nums[0])},{int(nums[1])}"
-
-    raise ValueError(f"Cannot parse node: {n}")
-
-
-def build_graph_from_map(MAP):
-    """
-    NEW SIMPLE VERSION.
-    Builds a graph with node keys always as 'x,y' strings.
-    Computes edge length automatically.
-    Returns: G, COORDS
-    """
-    G = nx.Graph()
-    COORDS = {}
-
-    # Add nodes
-    for raw_key in MAP.keys():
-        key = node_to_key_str(raw_key)
-
-        # Extract numbers for coords
-        nums = re.findall(r"-?\d+", str(raw_key))
-        x, y = int(nums[0]), int(nums[1])
-        COORDS[key] = (float(x), float(y))
-
-        G.add_node(key)
-
-    # Add edges
-    for raw_key, neighbours in MAP.items():
-        key = node_to_key_str(raw_key)
-
-        for _, nb in neighbours.items():
-            nb_key = node_to_key_str(nb)
-
-            # If neighbouring node not added yet, add it with fresh coords
-            if nb_key not in COORDS:
-                nums = re.findall(r"-?\d+", str(nb))
-                nx_, ny_ = int(nums[0]), int(nums[1])
-                COORDS[nb_key] = (float(nx_), float(ny_))
-                G.add_node(nb_key)
-
-            # Add edge if absent
-            if not G.has_edge(key, nb_key):
-                (ax, ay) = COORDS[key]
-                (bx, by) = COORDS[nb_key]
-                dist = math.hypot(ax - bx, ay - by)
-                G.add_edge(key, nb_key, length=dist)
-
-    return G, COORDS
-
-def path_length(G, path):
-    if not path or len(path) < 2:
-        return 0.0
-    s = 0.0
-    for i in range(len(path)-1):
-        s += G[path[i]][path[i+1]]['length']
-    return s
-# small helper for path length (keeps your old semantics)
-def path_length(G: nx.Graph, path: list) -> float:
-    if not path or len(path) < 2:
-        return 0.0
-    return sum(G[path[i]][path[i+1]]['length'] for i in range(len(path)-1))
-
-# def path_length(G, path):
-    # if not path or len(path) < 2: return 0.0
-    # return sum(G[path[i]][path[i+1]]['length'] for i in range(len(path)-1))
-
-# prepare world graph once
-G, COORDS = build_graph_from_map(MAP)
-print("nodes:", len(G.nodes))
-# canonicalize incoming pickup/drop before using in shortest_path:
-
-# Known robots (initialize with no node, will be updated on status messages)
-# supervisor: simple robot store (no dataclass)
 known_robots = {
     "Khepera IV": {
-        "id": "Khepera IV",
-        "node": "0,0",
-        "x": 0,          # initial continuous pose (meters)
-        "y": 0,
-        "battery": 100.0,
-        "orientation":90,
-        "max_capacity": 2.0,
-        "state": "idle"    # idle or busy
+        "id": "Khepera IV", "node": "0,0", "x": 0, "y": 0, 
+        "orientation": 90, "battery": 100.0, "max_capacity": 2.0, 
+        "state": "idle", "current_task": None, "last_update": current_sim_time
     },
     "Khepera IV-1": {
-        "id": "Khepera IV-1",
-        "node": "3,2",
-        "x": 3,
-        "y": 2,
-        "orientation":90,
-        "battery": 100.0,
-        "max_capacity": 1.0,
-        "state": "idle"
+        "id": "Khepera IV-1", "node": "3,2", "x": 3, "y": 2, 
+        "orientation": 90, "battery": 100.0, "max_capacity": 1.0, 
+        "state": "idle", "current_task": None, "last_update": current_sim_time
     }
 }
 
-# task store
 tasks: Dict[str, Task] = {}
+pending_heap = []
 
-# --- Webots supervisor runtime ---
-sup = Supervisor()
-timestep = int(sup.getBasicTimeStep())
-receiver = sup.getDevice("receiver")
-emitter  = sup.getDevice("emitter")
-receiver.enable(timestep)
+# --- Logic Functions ---
 
-print("Supervisor (server) started, graph nodes:", list(G.nodes))
+def update_batteries():
+    """Simulates battery drain using simulation time."""
+    now = sup.getTime() # FIX: Use simulation time, not wall clock time
+    for rid, r in known_robots.items():
+        dt = now - r["last_update"]
+        if dt > 1.0: dt = 1.0 
+        
+        rate = BATTERY_DRAIN_MOVE if r["state"] != "idle" else BATTERY_DRAIN_IDLE
+        drain = rate * dt
+        
+        r["battery"] = max(0.0, r["battery"] - drain)
+        r["last_update"] = now
 
-def compute_cost(robot_dict, task):
-    # robot_dict is e.g. known_robots["Khepera IV"]
-    if task.weight > robot_dict["max_capacity"]:
-        return float('inf')
-    if robot_dict.get("node") is None:
-        # heavy penalty if robot's node unknown (prefer known-position robots)
-        return float('inf')
+def check_feasibility_and_cost(robot, task):
+    if task.weight > robot["max_capacity"]: return float('inf')
+    if robot.get("node") is None: return float('inf')
+
     try:
-        p1 = nx.shortest_path(G, robot_dict["node"], task.pickup, weight='length')
-        p2 = nx.shortest_path(G, task.pickup, task.drop, weight='length')
+        path_to_pickup = nx.shortest_path(G, robot["node"], task.pickup, weight='length')
+        dist_to_pickup = get_path_length(G, path_to_pickup)
+        
+        path_to_drop = nx.shortest_path(G, task.pickup, task.drop, weight='length')
+        dist_to_drop = get_path_length(G, path_to_drop)
+        
+        min_charge_dist = float('inf')
+        for charger in CHARGERS:
+            try:
+                p = nx.shortest_path(G, task.drop, charger, weight='length')
+                d = get_path_length(G, p)
+                if d < min_charge_dist: min_charge_dist = d
+            except nx.NetworkXNoPath: continue
+                
+        if min_charge_dist == float('inf'): return float('inf')
+
+        total_mission_dist = dist_to_pickup + dist_to_drop + min_charge_dist
+        est_drain = (total_mission_dist / AVG_ROBOT_SPEED) * BATTERY_DRAIN_MOVE
+        predicted_battery = robot["battery"] - est_drain
+        
+        if predicted_battery < SAFE_BATTERY_THRESHOLD:
+            return float('inf')
+            
+        return dist_to_pickup + dist_to_drop
+
     except nx.NetworkXNoPath:
         return float('inf')
-    return path_length(G, p1) + path_length(G, p2)
 
-def allocate_task(task):
-    best = None; best_cost = float('inf')
-    for r in known_robots.values():
-        if r["state"] != "idle":
-            continue
-        c = compute_cost(r, task)
-        if c < best_cost:
-            best_cost = c; best = r
-    if best is None or best_cost == float('inf'):
-        return None
-    # assign
-    task.assigned_robot = best["id"]
-    task.assign_time = time.time()
-    task.status = 'assigned'
-    best["state"] = 'busy'
-    # compute path
-    p1 = nx.shortest_path(G, best["node"], task.pickup, weight='length')
-    p2 = nx.shortest_path(G, task.pickup, task.drop, weight='length')
-    path = p1 + p2[1:]
-    instr = path_nodes_to_instructions(path, start_heading=best["orientation"], append_stop=True)
+def allocate_pending_tasks():
+    repush = []
+    while pending_heap:
+        prio, rtime, tid = heapq.heappop(pending_heap)
+        t = tasks.get(tid)
+        
+        if not t or t.status != "waiting": continue
+        
+        best_robot = None
+        best_cost = float('inf')
+        
+        for rid, r in known_robots.items():
+            if r["state"] != "idle": continue
+            
+            cost = check_feasibility_and_cost(r, t)
+            if cost < best_cost:
+                best_cost = cost
+                best_robot = r
+        
+        if best_robot:
+            assign_task(best_robot, t)
+        else:
+            repush.append((prio, rtime, tid))
+            
+    for item in repush:
+        heapq.heappush(pending_heap, item)
+
+def assign_task(robot, task):
+    task.assigned_robot = robot["id"]
+    task.status = "assigned"
+    
+    start_node = robot["node"]
+    path_pickup = nx.shortest_path(G, start_node, task.pickup)
+    path_drop = nx.shortest_path(G, task.pickup, task.drop)
+    
+    full_path_nodes = path_pickup + path_drop[1:]
+    instr = generate_instructions(full_path_nodes, robot["orientation"])
+    
+    robot["current_task"] = task.id
+    robot["state"] = "busy_unloaded"
+    robot["current_pickup"] = task.pickup
+    robot["current_drop"] = task.drop
+    
+    # FIX: Parse start_node to ensure integer location [x, y] in message
+    # This aligns with the robot's MAP keys (e.g. "[0, 0]")
+    start_x, start_y = parse_xy(start_node)
+    
     msg = {
         "type": "assign",
         "task_id": task.id,
-        "robot_id": best["id"],
-        "path": path,
-        "instructions":instr,
+        "robot_id": robot["id"],
+        "instructions": instr,
         "pickup_node": task.pickup,
         "drop_node": task.drop,
-        "location":[best["x"],best["y"]],
-        "timestamp": time.time()
+        "location": [start_x, start_y],
+        "timestamp": sup.getTime()
     }
     emitter.send(json.dumps(msg).encode('utf-8'))
-    print(f"[server] assigned {task.id} -> {best['id']} path_len={len(path)}")
-    return best["id"]
+    print(f"Allocated {task.id} to {robot['id']} (Bat: {robot['battery']:.1f}%)")
 
+# --- Main Loop ---
 
-print("Ready to receive requests and statuses.")
+print("Server Running...")
 
-# main loop
 while sup.step(timestep) != -1:
-    # process incoming messages
+    update_batteries()
+    print(known_robots)
+
     while receiver.getQueueLength() > 0:
-        raw = receiver.getString()
-        receiver.nextPacket()
+
         try:
+            raw = receiver.getString()
+            receiver.nextPacket()
             msg = json.loads(raw)
+            mtype = msg.get("type")
+            #print("message test"+raw)
+            if mtype == "status":
+                rid = msg.get("robot_id")
+                if rid in known_robots:
+                    r = known_robots[rid]
+                    r["x"] = float(msg.get("location", [0,0])[0])
+                    r["y"] = float(msg.get("location", [0,0])[1])
+                    new_orient = msg.get("orientation")
+                    if new_orient is not None:
+                        r["orientation"] = int(new_orient)
+                        
+                    nearest, dist = find_nearest_node(r["x"], r["y"], COORDS)
+                    if dist <= SNAP_THRESHOLD:
+                        current_n = r["node"]
+                        r["node"] = nearest
+                        
+                        if r["state"] == "busy_unloaded" and nearest == r.get("current_pickup"):
+                            r["state"] = "busy_loaded"
+                            if r.get("current_task"): tasks[r["current_task"]].status = "picked"
+                            print(f"{rid} arrived at pickup {nearest}")
+                            
+                        elif r["state"] == "busy_loaded" and nearest == r.get("current_drop"):
+                            r["state"] = "idle"
+                            tid = r.get("current_task")
+                            if tid: tasks[tid].status = "delivered"
+                            r["current_task"] = None
+                            r["current_pickup"] = None
+                            r["current_drop"] = None
+                            print(f"{rid} delivered at {nearest}")
+             
+            elif mtype == "request":
+                rid = msg.get("request_id")
+                t = Task(
+                    id=rid,
+                    pickup=fmt_key(msg.get("pickup_node")),
+                    drop=fmt_key(msg.get("drop_node")),
+                    weight=msg.get("weight", 0),
+                    priority=msg.get("priority", 0)
+                )
+                tasks[rid] = t
+                heapq.heappush(pending_heap, (-t.priority, sup.getTime(), rid))
+                print(f"New Request: {rid} ({t.pickup} -> {t.drop})")
+            elif mtype == "startup":
+                rid = msg.get("robot_id")
+                if rid in known_robots:
+                    r = known_robots[rid]
+                    
+                    # Convert internal "0,0" string to [0, 0] list for the robot
+                    start_x, start_y = parse_xy(r["node"]) 
+                    
+                    init_msg = {
+                        "type": "init",
+                        "robot_id": rid,
+                        "location": [start_x, start_y],
+                        "orientation": r["orientation"]
+                    }
+                    emitter.send(json.dumps(init_msg).encode('utf-8'))
+                    print(f"initialized {rid} at {r['node']} facing {r['orientation']}")
         except Exception as e:
-            print("Supervisor: bad message:", e, raw)
+            print(f"Error processing msg: {e}")
             continue
-        mtype = msg.get("type")
-        if mtype == "status":
-            rid = msg.get("robot_id")
-            loc = msg.get("location")    # expects [x, y] in meters
-            battery = msg.get("battery")
-            state = msg.get("state")
-        
-            if rid in known_robots:
-                r = known_robots[rid]
-                if loc and isinstance(loc, (list, tuple)) and len(loc) >= 2:
-                    x, y = float(loc[0]), float(loc[1])
-                    r["x"], r["y"] = x, y
-                    # try snap; if close to grid intersection set node
-                    snapped = snap_location_to_node(x, y)
-                    if snapped:
-                        r["node"] = snapped
-                    else:
-                        # optional: keep nearest node if within a reasonable threshold
-                        nearest, dist = nearest_node_from_xy(x, y)
-                        if dist <= (GRID_CELL_SIZE * 0.75):   # tunable
-                            r["node"] = nearest
-                if battery is not None:
-                    r["battery"] = battery
-                if state is not None:
-                    r["state"] = state
-                print(f"[server] status {rid}: loc=({r['x']:.2f},{r['y']:.2f}) node={r['node']} battery={r['battery']} state={r['state']}")
-            else:
-                print(f"[server] status from unknown robot {rid}")
-        
-        elif mtype == "request":
-            # create Task and try to allocate immediately
-            req_id = msg.get("request_id")
-            pickup = msg.get("pickup_node")
-            drop = msg.get("drop_node")
-            weight = msg.get("weight", 0.0)
-            priority = msg.get("priority", 0)
-            t = Task(id=req_id, pickup=pickup, drop=drop, weight=weight, priority=priority, request_time=time.time())
-            tasks[req_id] = t
-            print(f"[server] request {req_id} pickup={pickup} drop={drop} weight={weight} priority={priority}")
-            
-            assigned = allocate_task(t)
-            print(known_robots)
-            if assigned is None:
-                print(f"[server] could not assign {req_id} now (no available robot or path).")
-        else:
-            print("Supervisor: unknown message type:", mtype)
-    # end processing
-    # light housekeeping: you can reattempt unassigned tasks periodically (not implemented)
+
+    allocate_pending_tasks()
