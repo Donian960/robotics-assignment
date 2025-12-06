@@ -295,7 +295,7 @@ def follow_instructions(instructions,start_loc, start_dir):
     position = get_position()
     # getting initial values of ahead and position
     
-    direction = 90
+    #direction = 90
     # direction value used when tracing own steps
     ## represents angle in degrees
     ## 0 is facing right, 90 down, etc.
@@ -415,7 +415,7 @@ def follow_instructions(instructions,start_loc, start_dir):
                             current_instruction += 1
                             
                             location, direction = trace(location, direction, ci)
-                            send_status_update(robot.getName(), location, "busy_loaded")
+                            #send_status_update(robot.getName(), location, "busy_loaded")
                             send_status_update(robot.getName(), location, direction, "busy_loaded")
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
@@ -448,12 +448,24 @@ def follow_instructions(instructions,start_loc, start_dir):
                     # last_sent_node = node_key
             
             # FIXED: Break the loop so the robot can hear the next assignment!
+            spot = position 
+            #if spot in ("red", "green", "blue") or state == "IDLE":
+            node_key = f"{int(location[0])},{int(location[1])}"
+            
+            if node_key != last_sent_node:
+                
+                # --- INSERT HERE (4/4) ---
+                # Final safety update
+                send_status_update(robot.getName(), location, direction, "idle")
+                
+                last_sent_node = node_key
+            
             return location, direction
             
 print(robot.getName())
 current_location, current_direction = wait_for_supervisor_config()
 while robot.step(timestep) != -1:
-
+    print(robot.getName(),current_direction)
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
         try:

@@ -195,13 +195,13 @@ current_sim_time = sup.getTime()
 
 known_robots = {
     "Khepera IV": {
-        "id": "Khepera IV", "node": "0,0", "x": 0, "y": 0, 
+        "id": "Khepera IV", "node": "0,1", "x": 0, "y": 1, 
         "orientation": 90, "battery": 100.0, "max_capacity": 2.0, 
         "state": "idle", "current_task": None, "last_update": current_sim_time
     },
     "Khepera IV-1": {
-        "id": "Khepera IV-1", "node": "3,2", "x": 3, "y": 2, 
-        "orientation": 90, "battery": 100.0, "max_capacity": 1.0, 
+        "id": "Khepera IV-1", "node": "8,3", "x": 8, "y": 3, 
+        "orientation": 270, "battery": 100.0, "max_capacity": 1.0, 
         "state": "idle", "current_task": None, "last_update": current_sim_time
     }
 }
@@ -323,7 +323,7 @@ print("Server Running...")
 
 while sup.step(timestep) != -1:
     update_batteries()
-    print(known_robots)
+    #print(known_robots)
 
     while receiver.getQueueLength() > 0:
 
@@ -361,6 +361,15 @@ while sup.step(timestep) != -1:
                             r["current_pickup"] = None
                             r["current_drop"] = None
                             print(f"{rid} delivered at {nearest}")
+                    reported_state = msg.get("state")
+                    if reported_state:
+                        r["state"] = reported_state
+                        if reported_state == "idle" and r.get("current_task"):
+                                tid = r.get("current_task")
+                                if tid in tasks and tasks[tid].status != "delivered":
+                                    tasks[tid].status = "delivered"
+                                    r["current_task"] = None
+                                    print(f"{rid} forced delivery completion based on IDLE report")
              
             elif mtype == "request":
                 rid = msg.get("request_id")
@@ -393,5 +402,5 @@ while sup.step(timestep) != -1:
         except Exception as e:
             print(f"Error processing msg: {e}")
             continue
-
+    print(known_robots)
     allocate_pending_tasks()

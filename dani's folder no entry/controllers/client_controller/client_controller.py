@@ -31,7 +31,7 @@ NODE_HASH = {
 schedule = [
     {"time": 1.0, "request_id": "req-01", "pickup": "Paris", "drop": "2,7", "weight": 0.5, "priority": 1},
     {"time": 2.0, "request_id": "req-02", "pickup": "4,2", "drop": "5,1", "weight": 1.0, "priority": 2},
-    {"time": 9.0, "request_id": "req-03", "pickup": "2,3", "drop": "2,7", "weight": 0.5, "priority": 1}
+    {"time": 5.0, "request_id": "req-03", "pickup": "2,3", "drop": "2,7", "weight": 0.5, "priority": 1}
 ]
 for req in schedule:
     if req["pickup"] in NODE_HASH:
