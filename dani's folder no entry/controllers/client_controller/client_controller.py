@@ -51,7 +51,7 @@ schedule = [
     {
         "time": 2.0, 
         "request_id": "req-02", 
-        "pickup": "7,7", 
+        "pickup": "8,3", 
         "drop": "8,0", 
         "weight": 0.5, 
         "priority": 1
@@ -66,7 +66,7 @@ schedule = [
     {
         "time": 15.0, 
         "request_id": "req-03", 
-        "pickup": "2,7", 
+        "pickup": "8,0", 
         "drop": "8,3", 
         "weight": 0.5, 
         "priority": 1
@@ -91,8 +91,8 @@ schedule = [
     {
         "time": 30.0, 
         "request_id": "req-05", 
-        "pickup": "7,7", 
-        "drop": "2,8", 
+        "pickup": "2,3", 
+        "drop": "2,8",
         "weight": 0.5, 
         "priority": 2
     },
@@ -102,7 +102,7 @@ schedule = [
     {
         "time": 32.0, 
         "request_id": "req-06", 
-        "pickup": "2,7", 
+        "pickup": "8,3", 
         "drop": "8,0", 
         "weight": 0.5, 
         "priority": 2

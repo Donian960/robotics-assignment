@@ -23,7 +23,8 @@ BATTERY_DRAIN_MOVE = 0.25
 AVG_ROBOT_SPEED = 0.15 
 CHARGE_RATE = 5.0              # Battery % gained per second (Fast charging)
 AVG_MISSION_DISTANCE = 15.0    # Approximate meters for a standard task (for estimation)        
-
+WEIGHT_DRAIN_FACTOR = 0.2      # 20% extra drain per kg of weight
+CRITICAL_BATTERY_RESERVE = 15.0
 DEFAULT_SPEED = 0.15          # m/s (Initial guess 'S')
 HANDLING_OVERHEAD = 5.0       # Seconds 'C' (Total time spent Loading + Unloading + Aligning)
 SPEED_LEARNING_ALPHA = 0.3    # How fast we adapt to new speeds
@@ -90,6 +91,7 @@ MAP = {
 
 CHARGERS = ["0,0", "6,3"] 
 
+tasks = {}
 @dataclass
 class Task:
     id: str
@@ -239,7 +241,7 @@ known_robots = {
 }
 
 tasks: Dict[str, Task] = {}
-pending_heap = []
+#pending_heap = []
 
 # --- Logic Functions ---
 
@@ -433,88 +435,98 @@ def update_robot_learning(robot):
 
 def check_feasibility_and_cost(robot, task):
     """
-    Calculates the 'True Economic Cost' (Bid) normalized to Time (Seconds).
-    
-    Components:
-    1. Execution Time: Time required to drive the path.
-    2. Recovery Time: Time required to recharge the energy burnt.
-    3. Risk Penalty: Exponential cost as battery approaches safety limits.
+    Advanced Utility Function.
+    Calculates cost in 'Seconds of Effort', factoring in:
+    1. Full Trip Physics (Robot->Pick->Drop->Charger)
+    2. Payload Weight Impact on Battery
+    3. Aging/Wait Time (Dynamic Priority)
+    4. Battery Scarcity Risk
     """
-    # --- 1. HARD CONSTRAINTS (Binary Pass/Fail) ---
+    
+    # --- 1. HARD CHECKS ---
     if task.weight > robot["max_capacity"]: return float('inf')
     if robot.get("node") is None: return float('inf')
 
     try:
-        # Distance Calculations
+        # --- 2. PATH PLANNING (The Full Lifecycle) ---
+        # Leg 1: Robot -> Pickup
         path_pickup = nx.shortest_path(G, robot["node"], task.pickup, weight='length')
         dist_pickup = get_path_length(G, path_pickup)
         
+        # Leg 2: Pickup -> Drop
         path_drop = nx.shortest_path(G, task.pickup, task.drop, weight='length')
         dist_drop = get_path_length(G, path_drop)
         
-        # Charger Safety Check (from Drop point)
-        min_charge_dist = float('inf')
+        # Leg 3: Drop -> Any Charger (The "Return Ticket")
+        # We must ensure the robot isn't stranded after delivery
+        dist_return = float('inf')
         for charger in CHARGERS:
             try:
                 p = nx.shortest_path(G, task.drop, charger, weight='length')
                 d = get_path_length(G, p)
-                if d < min_charge_dist: min_charge_dist = d
+                if d < dist_return: dist_return = d
             except nx.NetworkXNoPath: continue
-        
-        if min_charge_dist == float('inf'): return float('inf')
+            
+        if dist_return == float('inf'): return float('inf')
 
-        # --- 2. PHYSICS SIMULATION ---
+        # --- 3. PHYSICS & ENERGY SIMULATION ---
         
-        # Total distance the robot must travel to complete task + survive
-        total_dist = dist_pickup + dist_drop + min_charge_dist
+        # Determine Base Efficiency
+        base_drain = robot.get("learned_move_rate", BATTERY_DRAIN_MOVE)
         
-        # Intelligence: Use learned efficiency
-        drain_rate = robot.get("learned_move_rate", BATTERY_DRAIN_MOVE)
+        # Apply Weight Penalty (Physics)
+        # Heavy tasks drain battery faster during the carry leg
+        loaded_drain = base_drain * (1.0 + (task.weight * WEIGHT_DRAIN_FACTOR))
         
-        # Calculate Time and Energy
-        mission_time_s = (dist_pickup + dist_drop) / AVG_ROBOT_SPEED
-        energy_cost_pct = (total_dist / AVG_ROBOT_SPEED) * drain_rate
+        # Calculate Energy Consumed per Leg
+        speed = robot.get("learned_speed", AVG_ROBOT_SPEED)
         
-        predicted_end_battery = robot["battery"] - energy_cost_pct
+        energy_leg1 = (dist_pickup / speed) * base_drain    # Empty
+        energy_leg2 = (dist_drop / speed) * loaded_drain    # Loaded
+        energy_leg3 = (dist_return / speed) * base_drain    # Empty (Return)
         
-        # Hard Safety Cutoff
-        if predicted_end_battery < SAFE_BATTERY_THRESHOLD:
+        total_energy_required = energy_leg1 + energy_leg2 + energy_leg3
+        
+        predicted_end_battery = robot["battery"] - total_energy_required
+        
+        # Safety Barrier: Must finish mission + return trip with reserve left
+        if predicted_end_battery < CRITICAL_BATTERY_RESERVE:
             return float('inf')
 
-        # --- 3. ECONOMIC COST CALCULATION (The "Best" Logic) ---
+        # --- 4. ECONOMIC COST CALCULATION ---
         
-        # FACTOR A: Execution Cost (Seconds)
-        # We weigh pickup time higher (1.2x) because driving empty is non-productive
-        cost_exec = ((dist_pickup * 1.2) + dist_drop) / AVG_ROBOT_SPEED
+        # A. Time Cost (Execution Time)
+        # We penalize Pickup distance (deadheading) by 1.5x
+        time_cost = ((dist_pickup * 1.5) + dist_drop) / speed
 
-        # FACTOR B: Recovery Cost (Seconds)
-        # "Time is Money". Burning energy means we owe 'future time' to the charger.
-        # We assume CHARGE_RATE (e.g., 5.0% per sec). 
-        # Cost = Energy Used / Charge Rate
-        cost_recovery = energy_cost_pct / 5.0  # (Hardcoded CHARGE_RATE or read from config)
+        # B. Recovery Cost (Sustainability)
+        # Cost = Time required to charge back the energy used.
+        # This makes inefficient robots "expensive" to hire.
+        recovery_cost = (energy_leg1 + energy_leg2) / CHARGE_RATE
 
-        # FACTOR C: Risk/Scarcity (Exponential Barrier)
-        # As we get closer to the threshold, the "Stress" increases exponentially.
-        # This naturally filters out low-battery robots without hard logic.
-        buffer = predicted_end_battery - SAFE_BATTERY_THRESHOLD
-        # Formula: A * e^(-B * buffer)
-        # A=10 (Base penalty), B=0.15 (Curve shape - tune this)
-        # If buffer is high (50%), cost is near 0. If buffer is low (2%), cost explodes.
-        cost_risk = 10.0 * math.exp(-0.15 * buffer)
+        # C. Risk Cost (Exponential)
+        # If battery is 90%, cost is near 0.
+        # If battery is 20%, cost is extreme.
+        buffer = predicted_end_battery - CRITICAL_BATTERY_RESERVE
+        risk_cost = 20.0 * math.exp(-0.2 * buffer)
 
-        # Total Cost in "Seconds of Effort"
-        total_cost_seconds = cost_exec + cost_recovery + cost_risk
-
-        # --- 4. PRIORITY SCALING ---
-        # Priority isn't a cost reducer; it's a "Willingness to Pay".
-        # We divide the physical cost by the priority to make the robot 'cheaper' relative to others
-        # for important tasks.
+        # D. Wait Time Discount (Aging)
+        # The longer a task waits, the "cheaper" it becomes for robots to accept it.
+        current_time = sup.getTime()
+        wait_time = max(0.0, current_time - task.request_time)
         
-        # Priority 1 (High) -> Divisor 2.0
-        # Priority 3 (Low)  -> Divisor 0.5
-        priority_willingness = 2.0 / max(1, task.priority)
+        # Aging Factor: 1.0 at start, 2.0 after 30s, 3.0 after 60s
+        aging_factor = 1.0 + (wait_time / 30.0)
         
-        final_bid = total_cost_seconds / priority_willingness
+        # Priority Factor: High priority (1) scales costs down significantly
+        priority_factor = 3.0 / max(1, task.priority)
+        
+        # --- FINAL SCORE ---
+        # (Physical Costs + Risk) / (Urgency Drivers)
+        # High urgency makes the High Cost of a low-battery robot "acceptable".
+        
+        total_physical_cost = time_cost + recovery_cost + risk_cost
+        final_bid = total_physical_cost / (priority_factor * aging_factor)
         
         return final_bid
 
@@ -522,34 +534,71 @@ def check_feasibility_and_cost(robot, task):
         return float('inf')
         
 def allocate_pending_tasks():
-    repush = []
-    while pending_heap:
-        prio, rtime, tid = heapq.heappop(pending_heap)
-        t = tasks.get(tid)
-        
-        if not t or t.status != "waiting": continue
-        
-        best_robot = None
-        best_cost = float('inf')
-        
-        for rid, r in known_robots.items():
-            if not r.get("initialized", False): 
-                    continue
-            if r["state"] != "idle": continue
-            
-            cost = check_feasibility_and_cost(r, t)
-            if cost < best_cost:
-                best_cost = cost
-                best_robot = r
-        
-        if best_robot:
-            assign_task(best_robot, t)
-        else:
-            repush.append((prio, rtime, tid))
-            
-    for item in repush:
-        heapq.heappush(pending_heap, item)
+    """
+    Performs a Global Batch Auction.
+    Does NOT use a greedy queue. It calculates the matrix of all possibilities
+    and selects the lowest cost pairings globally.
+    """
+    
+    # 1. Identify Valid Agents
+    # Must be IDLE and Initialized
+    idle_robots = [r for r in known_robots.values() 
+                   if r["state"] == "idle" and r.get("initialized", False)]
+    
+    if not idle_robots: return
 
+    # 2. Identify Valid Tasks
+    waiting_tasks = [t for t in tasks.values() if t.status == "waiting"]
+    
+    if not waiting_tasks: return
+
+    # 3. Generate The Bid Matrix
+    # We create a list of ALL possible edges: (Cost, TaskID, RobotID)
+    all_bids = []
+
+    for task in waiting_tasks:
+        for robot in idle_robots:
+            cost = check_feasibility_and_cost(robot, task)
+            
+            if cost != float('inf'):
+                # We store the tuple to sort later
+                all_bids.append({
+                    "cost": cost,
+                    "task": task,
+                    "robot": robot
+                })
+
+    # 4. Determine Winners (Kruskal's Algorithm / Greedy-Global)
+    # Sort all bids by Cost (Lowest = Best)
+    # This ensures the "Best Match in the Universe" is picked first,
+    # rather than just the best match for the first robot found.
+    all_bids.sort(key=lambda x: x["cost"])
+
+    assigned_task_ids = set()
+    assigned_robot_ids = set()
+
+    for bid in all_bids:
+        t = bid["task"]
+        r = bid["robot"]
+        
+        # If this task OR this robot is already taken by a better bid, skip
+        if t.id in assigned_task_ids: continue
+        if r["id"] in assigned_robot_ids: continue
+        
+        # --- FINAL CHECK: Is charging better? ---
+        # Ideally, if the "Best Bid" cost is still astronomically high (due to low battery),
+        # the robot should choose to charge instead of working.
+        # Threshold: If Cost > 500 (arbitrary high risk), skip assignment.
+        if bid["cost"] > 500.0:
+            print(f"Bid rejected for {r['id']} on {t.id} (Cost {bid['cost']:.1f} too high/risky).")
+            continue
+
+        # Execute Assignment
+        assign_task(r, t)
+        
+        # Mark as taken
+        assigned_task_ids.add(t.id)
+        assigned_robot_ids.add(r["id"])
 
 def finalize_and_learn(robot):
     """
@@ -771,10 +820,11 @@ while sup.step(timestep) != -1:
                     pickup=fmt_key(msg.get("pickup_node")),
                     drop=fmt_key(msg.get("drop_node")),
                     weight=msg.get("weight", 0),
-                    priority=msg.get("priority", 0)
+                    priority=msg.get("priority", 0),
+                    request_time=sup.getTime()
                 )
                 tasks[rid] = t
-                heapq.heappush(pending_heap, (-t.priority, sup.getTime(), rid))
+                #heapq.heappush(pending_heap, (-t.priority, sup.getTime(), rid))
                 print(f"New Request: {rid} ({t.pickup} -> {t.drop})")
             elif mtype == "startup":
                 rid = msg.get("robot_id")
@@ -795,18 +845,8 @@ while sup.step(timestep) != -1:
         except Exception as e:
             print(f"Error processing msg: {e}")
             continue
-    print(pending_heap)
-    
-    print(pending_heap)
-
-    print(pending_heap)
-
-    print(pending_heap)
-
-    print(pending_heap)
-
-    print(pending_heap)
-    print(known_robots)
+    #print(tasks)
+    #print(known_robots)
     debug_status=[]
     for rid, r in known_robots.items():
         # Format: Name @ [X, Y] | Node: "0,0"
