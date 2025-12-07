@@ -20,7 +20,7 @@ while robot.step(TIME_STEP) != -1:
     r = gs_right.getValue()
 
     threshold = 1000
-    print(l,r)
+    #print(l,r)
     if l < threshold and r < threshold:
         left.setVelocity(4)
         right.setVelocity(4)
