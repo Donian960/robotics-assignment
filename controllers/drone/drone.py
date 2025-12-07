@@ -75,11 +75,15 @@ time_since_last_broadcast = 0
 x = 0
 y = 0
 
-od = Odometry(0, 0, 0, left_sensor.getValue(), right_sensor.getValue()) 
+#Simulate one timetep to initialise sensor readings
+robot.step(timestep)
+
+#Initialise odometry values
+od = Odometry(0, 0, 0, left_sensor.getValue(), right_sensor.getValue())
+
 while robot.step(timestep) != -1:
-    
     od.step(left_sensor.getValue(), right_sensor.getValue())
-    
+    print(f"X: {od.x}, Y: {od.y}")
     time_since_last_broadcast += timestep
     if time_since_last_broadcast > time_between_broadcasts:
         message = { "name":name,
