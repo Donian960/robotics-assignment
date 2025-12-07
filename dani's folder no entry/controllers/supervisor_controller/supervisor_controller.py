@@ -20,8 +20,13 @@ SNAP_THRESHOLD = 0.1       # Metres (Fixed: was 0, needs tolerance)
 SAFE_BATTERY_THRESHOLD = 10.0  
 BATTERY_DRAIN_IDLE = 0.05      
 BATTERY_DRAIN_MOVE = 0.25      
-AVG_ROBOT_SPEED = 0.15         
+AVG_ROBOT_SPEED = 0.15 
+CHARGE_RATE = 5.0              # Battery % gained per second (Fast charging)
+AVG_MISSION_DISTANCE = 15.0    # Approximate meters for a standard task (for estimation)        
 
+DEFAULT_SPEED = 0.15          # m/s (Initial guess 'S')
+HANDLING_OVERHEAD = 5.0       # Seconds 'C' (Total time spent Loading + Unloading + Aligning)
+SPEED_LEARNING_ALPHA = 0.3    # How fast we adapt to new speeds
 # Map Data
 MAP = {
     "[0, 0]": {90: [0, 1]},
@@ -192,17 +197,44 @@ print(f"Graph built with {len(G.nodes)} nodes.")
 
 # Use sup.getTime() for initial timestamps to match Webots simulation time
 current_sim_time = sup.getTime()
+# --- Learning Constants ---
+LEARNING_INTERVAL = 5.0       # Update learned parameters every 5 seconds
+LEARNING_RATE_ALPHA = 0.3     # How fast we adapt (0.1 = slow/stable, 0.5 = fast/reactive)
+DEFAULT_IDLE_DRAIN = 0.05
+DEFAULT_MOVE_DRAIN = 0.25
 
 known_robots = {
     "Khepera IV": {
-        "id": "Khepera IV", "node": "0,1", "x": 0, "y": 1, 
-        "orientation": 90, "battery": 100.0, "max_capacity": 2.0, 
-        "state": "idle", "current_task": None, "last_update": current_sim_time
+        "id": "Khepera IV", "node": "0,0", "x": 0, "y": 0, 
+        "orientation": 90, "battery": 100.0, "max_capacity": 5.0, 
+        "state": "idle", "current_task": None, "last_update": current_sim_time,
+        "initialized": False,  # <--- NEW FLAG
+        "battery_history": [],        # List of (time, battery, state)
+        "sim_idle_rate": 0.05, 
+        "sim_move_rate": 0.25,
+        "learned_idle_rate": DEFAULT_IDLE_DRAIN,
+        "learned_move_rate": DEFAULT_MOVE_DRAIN,
+        "last_learning_time": current_sim_time,
+        "learned_speed": DEFAULT_SPEED,  # Starts at S
+        # Temporary storage to measure the current job
+        "task_start_time": 0.0,
+        "task_total_distance": 0.0,
     },
     "Khepera IV-1": {
         "id": "Khepera IV-1", "node": "8,3", "x": 8, "y": 3, 
-        "orientation": 270, "battery": 100.0, "max_capacity": 1.0, 
-        "state": "idle", "current_task": None, "last_update": current_sim_time
+        "orientation": 90, "battery": 25.0, "max_capacity": 5.0, 
+        "state": "idle", "current_task": None, "last_update": current_sim_time,
+        "initialized": False,  # <--- NEW FLAG
+        "battery_history": [],        # List of (time, battery, state)
+        "sim_idle_rate": 0.05, 
+        "sim_move_rate": 0.05,
+        "learned_idle_rate": DEFAULT_IDLE_DRAIN,
+        "learned_move_rate": DEFAULT_MOVE_DRAIN,
+        "last_learning_time": current_sim_time,
+        "learned_speed": DEFAULT_SPEED,  # Starts at S
+        # Temporary storage to measure the current job
+        "task_start_time": 0.0,
+        "task_total_distance": 0.0,
     }
 }
 
@@ -212,29 +244,215 @@ pending_heap = []
 # --- Logic Functions ---
 
 def update_batteries():
-    """Simulates battery drain using simulation time."""
-    now = sup.getTime() # FIX: Use simulation time, not wall clock time
+    """Simulates battery drain AND charging physics."""
+    now = sup.getTime()
     for rid, r in known_robots.items():
         dt = now - r["last_update"]
         if dt > 1.0: dt = 1.0 
         
-        rate = BATTERY_DRAIN_MOVE if r["state"] != "idle" else BATTERY_DRAIN_IDLE
-        drain = rate * dt
+        # 1. Check if Robot is physically at a charger
+        clean_node = r["node"].replace("[","").replace("]","").replace(" ","")
         
-        r["battery"] = max(0.0, r["battery"] - drain)
+        if clean_node in CHARGERS:
+            # CHARGING LOGIC
+            if r["state"] in ["idle", "charging", "moving_to_charge"]:
+                
+                # NEW: If just arrived, send charging start command
+                if r["state"] == "moving_to_charge":
+                    r["state"] = "charging"
+                    
+                    # Send explicit charging command to robot
+                    msg = {
+                        "type": "charging_start",
+                        "robot_id": rid,
+                        "charger_location": clean_node,
+                        "timestamp": now
+                    }
+                    emitter.send(json.dumps(msg).encode('utf-8'))
+                    print(f"[SUPERVISOR] Sent charging_start command to {rid} at {clean_node}")
+                
+                # Charge the battery
+                r["battery"] = min(100.0, r["battery"] + (CHARGE_RATE * dt))
+                
+                # If fully charged, mark as idle and send resume command
+                if r["battery"] >= 100.0 and r["state"] == "charging":
+                    r["state"] = "idle"
+                    
+                    # Send charging complete message
+                    msg = {
+                        "type": "charging_complete",
+                        "robot_id": rid,
+                        "final_battery": r["battery"],
+                        "timestamp": now
+                    }
+                    emitter.send(json.dumps(msg).encode('utf-8'))
+                    print(f"[SUPERVISOR] {rid} fully charged ({r['battery']:.1f}%) - sent resume command")
+        else:
+            # DRAINING LOGIC (Standard)
+            if r["state"] != "idle":
+                rate = r.get("sim_move_rate", BATTERY_DRAIN_MOVE)
+            else:
+                rate = r.get("sim_idle_rate", BATTERY_DRAIN_IDLE)
+                
+            drain = rate * dt
+            r["battery"] = max(0.0, r["battery"] - drain)
+            
         r["last_update"] = now
+def monitor_charging_needs():
+    """
+    Checks idle robots. If battery is below their PERSONAL safe threshold,
+    sends them to the nearest charger.
+    """
+    for rid, r in known_robots.items():
+        if not r.get("initialized", False): 
+            continue
+        # Only interrupt IDLE robots. Don't stop a robot carrying a box.
+        if r["state"] != "idle": 
+            continue
+            
+        # --- INTELLIGENT THRESHOLD CALCULATION ---
+        # 1. How much energy does THIS specific robot need to survive a trip?
+        # Use learned rate if available, else default
+        my_efficiency = r.get("learned_move_rate", BATTERY_DRAIN_MOVE)
+        
+        # 2. Calculate dynamic buffer
+        # Buffer = (Energy to drive avg mission) + (Energy to drive to charger) + Safety
+        # We estimate "Energy to drive to charger" as approx 10 meters for safety
+        energy_buffer = ((AVG_MISSION_DISTANCE + 10.0) / AVG_ROBOT_SPEED) * my_efficiency
+        
+        # 3. The Trigger Point
+        # Example: If inefficient robot needs 30% for a mission, trigger at 40% (30 + 10 safe)
+        trigger_threshold = energy_buffer + SAFE_BATTERY_THRESHOLD
+        
+        # Cap threshold reasonably (e.g., never force charge if above 60%)
+        trigger_threshold = min(trigger_threshold, 90.0)
+
+        if r["battery"] < trigger_threshold:
+            print(f"[{rid}] Low Battery ({r['battery']:.1f}% < {trigger_threshold:.1f}%). Routing to charger...")
+            send_to_charger(r)
+
+def send_to_charger(robot):
+    """
+    Finds nearest charger and issues a move command.
+    Sets robot state to 'moving_to_charge' so it doesn't get assigned tasks.
+    """
+    start_node = robot["node"]
+    
+    # 1. Find Nearest Charger
+    best_charger = None
+    min_dist = float('inf')
+    
+    for charger in CHARGERS:
+        try:
+            path = nx.shortest_path(G, start_node, charger, weight='length')
+            dist = get_path_length(G, path)
+            if dist < min_dist:
+                min_dist = dist
+                best_charger = charger
+        except nx.NetworkXNoPath:
+            continue
+            
+    if best_charger is None:
+        print(f"CRITICAL: {robot['id']} cannot reach any charger!")
+        return
+
+    # 2. Generate Instructions
+    path_to_charger = nx.shortest_path(G, start_node, best_charger)
+    instr = generate_instructions(path_to_charger, robot["orientation"])
+    
+    # 3. Update State (Lock the robot)
+    robot["state"] = "moving_to_charge" # Prevents task allocation
+    robot["current_task"] = None
+    robot["current_pickup"] = None
+    robot["current_drop"] = best_charger # Destination is the charger
+    
+    # 4. Send Command
+    msg = {
+        "type": "assign",
+        "task_id": "CHARGE_REQ", # Dummy ID
+        "robot_id": robot["id"],
+        "instructions": instr,
+        "pickup_node": start_node,
+        "drop_node": best_charger,
+        "location": parse_xy(start_node), # Use integer list [x,y]
+        "timestamp": sup.getTime()
+    }
+    emitter.send(json.dumps(msg).encode('utf-8'))
+    print(f"Sent {robot['id']} to charger at {best_charger}")
+
+def update_robot_learning(robot):
+    """
+    Analyzes recent history to estimate specific discharge rates
+    for IDLE and MOVING states using Linear Regression logic.
+    """
+    history = robot["battery_history"]
+    if len(history) < 2: return
+
+    # We need to calculate slope: (change in battery) / (change in time)
+    # We segregate segments where the state was consistent.
+    
+    idle_slopes = []
+    move_slopes = []
+    
+    for i in range(1, len(history)):
+        prev = history[i-1]
+        curr = history[i]
+        
+        dt = curr[0] - prev[0]
+        db = prev[1] - curr[1] # Drop in battery (positive value)
+        state = prev[2]        # State during this interval
+        
+        if dt <= 0.001: continue # Avoid div by zero
+        
+        drain_rate = db / dt
+        
+        # Filter noise: Ignore impossible rates (e.g. charging or instant death)
+        if 0 <= drain_rate < 5.0: 
+            if state == "idle":
+                idle_slopes.append(drain_rate)
+            else: # busy_loaded or busy_unloaded
+                move_slopes.append(drain_rate)
+
+    # --- The "Smart" Update (Exponential Moving Average) ---
+    # New_Estimate = Alpha * Observed + (1 - Alpha) * Old_Estimate
+    
+    if idle_slopes:
+        avg_observed_idle = sum(idle_slopes) / len(idle_slopes)
+        robot["learned_idle_rate"] = (LEARNING_RATE_ALPHA * avg_observed_idle) + \
+                                     ((1 - LEARNING_RATE_ALPHA) * robot["learned_idle_rate"])
+                                     
+    if move_slopes:
+        avg_observed_move = sum(move_slopes) / len(move_slopes)
+        robot["learned_move_rate"] = (LEARNING_RATE_ALPHA * avg_observed_move) + \
+                                     ((1 - LEARNING_RATE_ALPHA) * robot["learned_move_rate"])
+
+    # Clear history to save memory (or keep a rolling window)
+    robot["battery_history"] = [history[-1]] 
+    
+    print(f"[{robot['id']} Learning] Idle: {robot['learned_idle_rate']:.4f}%/s | Move: {robot['learned_move_rate']:.4f}%/s")
 
 def check_feasibility_and_cost(robot, task):
+    """
+    Calculates the 'True Economic Cost' (Bid) normalized to Time (Seconds).
+    
+    Components:
+    1. Execution Time: Time required to drive the path.
+    2. Recovery Time: Time required to recharge the energy burnt.
+    3. Risk Penalty: Exponential cost as battery approaches safety limits.
+    """
+    # --- 1. HARD CONSTRAINTS (Binary Pass/Fail) ---
     if task.weight > robot["max_capacity"]: return float('inf')
     if robot.get("node") is None: return float('inf')
 
     try:
-        path_to_pickup = nx.shortest_path(G, robot["node"], task.pickup, weight='length')
-        dist_to_pickup = get_path_length(G, path_to_pickup)
+        # Distance Calculations
+        path_pickup = nx.shortest_path(G, robot["node"], task.pickup, weight='length')
+        dist_pickup = get_path_length(G, path_pickup)
         
-        path_to_drop = nx.shortest_path(G, task.pickup, task.drop, weight='length')
-        dist_to_drop = get_path_length(G, path_to_drop)
+        path_drop = nx.shortest_path(G, task.pickup, task.drop, weight='length')
+        dist_drop = get_path_length(G, path_drop)
         
+        # Charger Safety Check (from Drop point)
         min_charge_dist = float('inf')
         for charger in CHARGERS:
             try:
@@ -242,21 +460,67 @@ def check_feasibility_and_cost(robot, task):
                 d = get_path_length(G, p)
                 if d < min_charge_dist: min_charge_dist = d
             except nx.NetworkXNoPath: continue
-                
+        
         if min_charge_dist == float('inf'): return float('inf')
 
-        total_mission_dist = dist_to_pickup + dist_to_drop + min_charge_dist
-        est_drain = (total_mission_dist / AVG_ROBOT_SPEED) * BATTERY_DRAIN_MOVE
-        predicted_battery = robot["battery"] - est_drain
+        # --- 2. PHYSICS SIMULATION ---
         
-        if predicted_battery < SAFE_BATTERY_THRESHOLD:
+        # Total distance the robot must travel to complete task + survive
+        total_dist = dist_pickup + dist_drop + min_charge_dist
+        
+        # Intelligence: Use learned efficiency
+        drain_rate = robot.get("learned_move_rate", BATTERY_DRAIN_MOVE)
+        
+        # Calculate Time and Energy
+        mission_time_s = (dist_pickup + dist_drop) / AVG_ROBOT_SPEED
+        energy_cost_pct = (total_dist / AVG_ROBOT_SPEED) * drain_rate
+        
+        predicted_end_battery = robot["battery"] - energy_cost_pct
+        
+        # Hard Safety Cutoff
+        if predicted_end_battery < SAFE_BATTERY_THRESHOLD:
             return float('inf')
-            
-        return dist_to_pickup + dist_to_drop
+
+        # --- 3. ECONOMIC COST CALCULATION (The "Best" Logic) ---
+        
+        # FACTOR A: Execution Cost (Seconds)
+        # We weigh pickup time higher (1.2x) because driving empty is non-productive
+        cost_exec = ((dist_pickup * 1.2) + dist_drop) / AVG_ROBOT_SPEED
+
+        # FACTOR B: Recovery Cost (Seconds)
+        # "Time is Money". Burning energy means we owe 'future time' to the charger.
+        # We assume CHARGE_RATE (e.g., 5.0% per sec). 
+        # Cost = Energy Used / Charge Rate
+        cost_recovery = energy_cost_pct / 5.0  # (Hardcoded CHARGE_RATE or read from config)
+
+        # FACTOR C: Risk/Scarcity (Exponential Barrier)
+        # As we get closer to the threshold, the "Stress" increases exponentially.
+        # This naturally filters out low-battery robots without hard logic.
+        buffer = predicted_end_battery - SAFE_BATTERY_THRESHOLD
+        # Formula: A * e^(-B * buffer)
+        # A=10 (Base penalty), B=0.15 (Curve shape - tune this)
+        # If buffer is high (50%), cost is near 0. If buffer is low (2%), cost explodes.
+        cost_risk = 10.0 * math.exp(-0.15 * buffer)
+
+        # Total Cost in "Seconds of Effort"
+        total_cost_seconds = cost_exec + cost_recovery + cost_risk
+
+        # --- 4. PRIORITY SCALING ---
+        # Priority isn't a cost reducer; it's a "Willingness to Pay".
+        # We divide the physical cost by the priority to make the robot 'cheaper' relative to others
+        # for important tasks.
+        
+        # Priority 1 (High) -> Divisor 2.0
+        # Priority 3 (Low)  -> Divisor 0.5
+        priority_willingness = 2.0 / max(1, task.priority)
+        
+        final_bid = total_cost_seconds / priority_willingness
+        
+        return final_bid
 
     except nx.NetworkXNoPath:
         return float('inf')
-
+        
 def allocate_pending_tasks():
     repush = []
     while pending_heap:
@@ -269,6 +533,8 @@ def allocate_pending_tasks():
         best_cost = float('inf')
         
         for rid, r in known_robots.items():
+            if not r.get("initialized", False): 
+                    continue
             if r["state"] != "idle": continue
             
             cost = check_feasibility_and_cost(r, t)
@@ -284,14 +550,70 @@ def allocate_pending_tasks():
     for item in repush:
         heapq.heappush(pending_heap, item)
 
+
+def finalize_and_learn(robot):
+    """
+    Called when a robot finishes a delivery.
+    Calculates actual effective speed and updates the learned model.
+    """
+    now = sup.getTime()
+    
+    # 1. How long did it actually take?
+    total_time_taken = now - robot["task_start_time"]
+    
+    # 2. Subtract the constant overhead (Loading/Unloading/Waiting)
+    # We want to measure DRIVING speed, not waiting speed.
+    driving_time = total_time_taken - HANDLING_OVERHEAD
+    
+    # Safety: Ensure we don't divide by zero if something weird happened
+    if driving_time <= 1.0: 
+        return
+
+    # 3. Calculate Real Speed
+    dist = robot["task_total_distance"]
+    measured_speed = dist / driving_time
+    
+    # Filter anomalies (e.g. robot got stuck and took 10 mins -> speed near 0)
+    if 0.05 < measured_speed < 1.0:
+        old_speed = robot["learned_speed"]
+        
+        # 4. Exponential Moving Average Update
+        new_speed = (SPEED_LEARNING_ALPHA * measured_speed) + \
+                    ((1 - SPEED_LEARNING_ALPHA) * old_speed)
+                    
+        robot["learned_speed"] = new_speed
+        
+        print(f"[{robot['id']} Learning] Job Done. "
+              f"Dist: {dist}m | Time: {total_time_taken:.1f}s | "
+              f"Real Speed: {measured_speed:.3f} | New Avg: {new_speed:.3f} m/s")
+
 def assign_task(robot, task):
     task.assigned_robot = robot["id"]
     task.status = "assigned"
     
     start_node = robot["node"]
-    path_pickup = nx.shortest_path(G, start_node, task.pickup)
-    path_drop = nx.shortest_path(G, task.pickup, task.drop)
     
+    # 1. Calculate Distances
+    path_pickup = nx.shortest_path(G, start_node, task.pickup, weight='length')
+    dist_pickup = get_path_length(G, path_pickup)
+    
+    path_drop = nx.shortest_path(G, task.pickup, task.drop, weight='length')
+    dist_drop = get_path_length(G, path_drop)
+    
+    total_dist = dist_pickup + dist_drop
+    
+    # 2. Store Data for Learning Later
+    robot["task_total_distance"] = total_dist
+    robot["task_start_time"] = sup.getTime()
+    
+    # 3. Calculate ETA (The Formula: T = D/S + C)
+    current_speed = robot.get("learned_speed", DEFAULT_SPEED)
+    
+    # Time = (Distance / Speed) + Handling_Constant
+    est_duration = (total_dist / current_speed) + HANDLING_OVERHEAD
+    
+    # 4. Standard Assignment Logic (Instructions, etc.)
+    # ... (Keep your existing path generation code here) ...
     full_path_nodes = path_pickup + path_drop[1:]
     instr = generate_instructions(full_path_nodes, robot["orientation"])
     
@@ -300,10 +622,7 @@ def assign_task(robot, task):
     robot["current_pickup"] = task.pickup
     robot["current_drop"] = task.drop
     
-    # FIX: Parse start_node to ensure integer location [x, y] in message
-    # This aligns with the robot's MAP keys (e.g. "[0, 0]")
-    start_x, start_y = parse_xy(start_node)
-    
+    # 5. Send to Robot
     msg = {
         "type": "assign",
         "task_id": task.id,
@@ -311,12 +630,23 @@ def assign_task(robot, task):
         "instructions": instr,
         "pickup_node": task.pickup,
         "drop_node": task.drop,
-        "location": [start_x, start_y],
+        "location": parse_xy(start_node),
         "timestamp": sup.getTime()
     }
     emitter.send(json.dumps(msg).encode('utf-8'))
-    print(f"Allocated {task.id} to {robot['id']} (Bat: {robot['battery']:.1f}%)")
-
+    
+    # 6. Send ETA to Client
+    msg_client = {
+        "type": "task_update",
+        "request_id": task.id,
+        "status": "assigned",
+        "assigned_robot": robot["id"],
+        "eta_seconds": round(est_duration, 1),
+        "avg_speed": round(current_speed, 3)
+    }
+    emitter.send(json.dumps(msg_client).encode('utf-8'))
+    
+    print(f"Allocated {task.id}. Dist: {total_dist:.1f}m. ETA: {est_duration:.1f}s")
 # --- Main Loop ---
 
 print("Server Running...")
@@ -324,7 +654,7 @@ print("Server Running...")
 while sup.step(timestep) != -1:
     update_batteries()
     #print(known_robots)
-
+    monitor_charging_needs()
     while receiver.getQueueLength() > 0:
 
         try:
@@ -339,6 +669,14 @@ while sup.step(timestep) != -1:
                     r = known_robots[rid]
                     r["x"] = float(msg.get("location", [0,0])[0])
                     r["y"] = float(msg.get("location", [0,0])[1])
+                    
+                    current_bat = r["battery"]
+                    r["battery_history"].append((sup.getTime(), current_bat, r["state"]))
+        
+                    if sup.getTime() - r["last_learning_time"] > LEARNING_INTERVAL:
+                        update_robot_learning(r)
+                        r["last_learning_time"] = sup.getTime()
+                        
                     new_orient = msg.get("orientation")
                     if new_orient is not None:
                         r["orientation"] = int(new_orient)
@@ -347,6 +685,8 @@ while sup.step(timestep) != -1:
                     if dist <= SNAP_THRESHOLD:
                         current_n = r["node"]
                         r["node"] = nearest
+                        
+                        
                         
                         if r["state"] == "busy_unloaded" and nearest == r.get("current_pickup"):
                             r["state"] = "busy_loaded"
@@ -361,16 +701,69 @@ while sup.step(timestep) != -1:
                             r["current_pickup"] = None
                             r["current_drop"] = None
                             print(f"{rid} delivered at {nearest}")
+                        elif r["state"] == "moving_to_charge" and nearest == r.get("current_drop"):
+                            r["state"] = "charging"
+                            r["current_drop"] = None
+                            print(f"{rid} docked at charger {nearest}. Charging started.")
+                        if nearest != old_node and r["state"] not in ["idle", "charging"]:
+                            # print(f"[SUPERVISOR] Correcting {rid}: {old_node} → {nearest}")
+                            correction_msg = {
+                                "type": "location_update",
+                                "robot_id": rid,
+                                "location": parse_xy(nearest),
+                                "orientation": r["orientation"],
+                                "timestamp": sup.getTime()
+                            }
+                            emitter.send(json.dumps(correction_msg).encode('utf-8'))
                     reported_state = msg.get("state")
-                    if reported_state:
-                        r["state"] = reported_state
-                        if reported_state == "idle" and r.get("current_task"):
-                                tid = r.get("current_task")
-                                if tid in tasks and tasks[tid].status != "delivered":
-                                    tasks[tid].status = "delivered"
-                                    r["current_task"] = None
-                                    print(f"{rid} forced delivery completion based on IDLE report")
-             
+                    i# ... inside "if mtype == 'status':" ...
+
+                    # --- 4. STATE SYNCHRONIZATION ---
+                    reported_state = msg.get("state")
+                    if reported_state == "idle":
+                        
+                        # CASE A: Charging Logic (Keep this, it's distinct)
+                        if r["state"] == "charging":
+                            pass
+                        elif r["state"] == "moving_to_charge" and r["node"] == r.get("current_drop"):
+                            r["state"] = "charging"
+                            r["current_drop"] = None
+                            print(f"{rid} docked at charger. Charging...")
+
+                        # CASE B: TASK COMPLETION (The Simplified Fix)
+                        # If robot stops at the Drop location, the task is DONE.
+                        # We don't care if it skipped the "busy_loaded" state update at pickup.
+                        elif r.get("current_task") and r["node"] == r.get("current_drop"):
+                            
+                            finalize_and_learn(r)
+                            
+                            r["state"] = "idle"
+                            tid = r.get("current_task")
+                            if tid and tid in tasks:
+                                tasks[tid].status = "delivered"
+                            
+                            r["current_task"] = None
+                            print(f"{rid} finished delivery at {r['node']}. Mission Complete.")
+
+                        # CASE C: PICKUP HANDSHAKE (Optional Phase 1)
+                        # Only relevant if you explicitly split the path. 
+                        # If robot stops at pickup, we update state and send next path.
+                        elif r.get("current_task") and r["node"] == r.get("current_pickup"):
+                            r["state"] = "busy_loaded"
+                            if r.get("current_task"): 
+                                tasks[r["current_task"]].status = "picked"
+                            
+                            print(f"{rid} loaded at Pickup {r['node']}. Continuing to Drop...")
+                            
+                            # If we assign in two phases, send the second leg here.
+                            # If we assigned the full path at start, this block just updates the status 
+                            # and the robot will naturally continue moving on its own.
+                        # CASE 2: Robot is moving. 
+                        # IGNORE "moving" or "busy_loaded" from robot. 
+                        # The Supervisor knows better (e.g., is it moving_to_charge? busy_unloaded?).
+                        # We only update coordinates/orientation, which we did above.
+                        elif reported_state == "moving":
+                            pass
             elif mtype == "request":
                 rid = msg.get("request_id")
                 t = Task(
@@ -390,7 +783,7 @@ while sup.step(timestep) != -1:
                     
                     # Convert internal "0,0" string to [0, 0] list for the robot
                     start_x, start_y = parse_xy(r["node"]) 
-                    
+                    r["initialized"] = True  # <--- ENABLE ROBOT HERE
                     init_msg = {
                         "type": "init",
                         "robot_id": rid,
@@ -402,5 +795,24 @@ while sup.step(timestep) != -1:
         except Exception as e:
             print(f"Error processing msg: {e}")
             continue
+    print(pending_heap)
+    
+    print(pending_heap)
+
+    print(pending_heap)
+
+    print(pending_heap)
+
+    print(pending_heap)
+
+    print(pending_heap)
     print(known_robots)
+    debug_status=[]
+    for rid, r in known_robots.items():
+        # Format: Name @ [X, Y] | Node: "0,0"
+        debug_status.append(f"{rid}: [{r['x']:.2f}, {r['y']:.2f}] (Node: {r['node']})")
+    
+    # Print on one line to avoid flooding the console
+    print(" | ".join(debug_status))
+
     allocate_pending_tasks()

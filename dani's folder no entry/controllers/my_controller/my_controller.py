@@ -201,7 +201,6 @@ def send_status_update(robot_id, loc, orient, state="busy_loaded"):
         "robot_id": robot_id,
         "location": loc,
         "orientation": orient,  # <--- NEW FIELD
-        "battery": 100.0,
         "state": state,
         "timestamp": time.time()
     }
@@ -228,6 +227,7 @@ def trace(location, direction, turn):
         # If invalid move (wall/dead end), print warning and STAY PUT
         print(f"WARNING: Wall detected at {location} facing {direction}. Staying put.")
         return location, direction
+        
 def wait_for_supervisor_config():
     """
     Blocks execution until initial state is received from Supervisor.
@@ -307,8 +307,9 @@ def follow_instructions(instructions,start_loc, start_dir):
     
     start_time = time.time()
     last_sent_node = None
+    previous_lookahead = get_position(300)
     while robot.step(timestep) != -1:
-    
+        current_lookahead = get_position(300)
         if len(instructions) > 0 and current_instruction < len(instructions):
         
             if state == "FOLLOW": # if it is currently following a line
@@ -390,7 +391,7 @@ def follow_instructions(instructions,start_loc, start_dir):
                     current_instruction += 1
                             
                     location, direction = trace(location, direction, ci)
-                    send_status_update(robot.getName(), location, direction, "busy_loaded")
+                    send_status_update(robot.getName(), location, direction, "moving")
                 if ci == "R" or ci == "U": # if instruction is to turn right or uturn, increases motor speed to do so
                 
                     left_wheel_motor.setVelocity(10)
@@ -407,16 +408,15 @@ def follow_instructions(instructions,start_loc, start_dir):
                     if new_ahead != ahead and new_ahead == "black": # checks if it has spotted a line
                         turns += 1 # if so then it has turned once
                         
-                        if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"): # if its turned far enough
-                            left_wheel_motor.setVelocity(0) # then it stops turning
+                        if (turns == 1 and (ci == "R" or ci == "L")) or (turns == 2 and ci == "U"):
+                            left_wheel_motor.setVelocity(0)
                             right_wheel_motor.setVelocity(0)
                             
-                            state = "FOLLOW" # and swaps to follow mode
+                            state = "FOLLOW"
                             current_instruction += 1
                             
                             location, direction = trace(location, direction, ci)
-                            #send_status_update(robot.getName(), location, "busy_loaded")
-                            send_status_update(robot.getName(), location, direction, "busy_loaded")
+                            send_status_update(robot.getName(), location, direction, "moving")
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
@@ -428,58 +428,129 @@ def follow_instructions(instructions,start_loc, start_dir):
             left_wheel_motor.setVelocity(0)
             right_wheel_motor.setVelocity(0)
             
-            # ... (existing spot check logic) ...
-            
-            # spot = position 
-            # if spot in ("red", "green", "blue") or state == "IDLE":
-                #FIXED: Protocol must match Supervisor "status" format
-                # node_key = f"{int(location[0])},{int(location[1])}"
-                
-                # if node_key != last_sent_node:
-                    # msg = {
-                        # "type": "status",           # CHANGED from "location"
-                        # "robot_id": robot.getName(),
-                        # "location": location,       # CHANGED to list [x,y]
-                        # "battery": 100.0,           # Added dummy battery
-                        # "state": "idle",            # Added state
-                        # "timestamp": time.time()
-                    # }
-                    # emitter.send(json.dumps(msg).encode("utf-8"))
-                    # last_sent_node = node_key
-            
-            # FIXED: Break the loop so the robot can hear the next assignment!
             spot = position 
-            #if spot in ("red", "green", "blue") or state == "IDLE":
-            node_key = f"{int(location[0])},{int(location[1])}"
-            
-            if node_key != last_sent_node:
+            # Force IDLE if instructions are done
+            state = "IDLE" 
+
+            if spot in ("red", "green", "blue") or state == "IDLE":
+                node_key = f"{int(location[0])},{int(location[1])}"
                 
-                # --- INSERT HERE (4/4) ---
-                # Final safety update
-                send_status_update(robot.getName(), location, direction, "idle")
-                
-                last_sent_node = node_key
+                # FIX: Add 'or state == "IDLE"' to bypass the duplicate check
+                # We ALWAYS want to tell the server when we stop.
+                if node_key != last_sent_node or state == "IDLE":
+                    
+                    send_status_update(robot.getName(), location, direction, "idle")
+                    
+                    last_sent_node = node_key
             
             return location, direction
             
 print(robot.getName())
+print(robot.getName())
 current_location, current_direction = wait_for_supervisor_config()
+
+# NEW: Charging state flag
+is_charging = False
+
 while robot.step(timestep) != -1:
-    print(robot.getName(),current_direction)
+    print(robot.getName(), current_direction)
+    
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:
-            # Convert plain string into an object with instructions
-            data = {"instructions": raw}
-        print("the message is"+msg)
-        if(data.get("type")!="location" and data.get("robot_id")==robot.getName()):
-            #print(data)
-            instructions = data.get("instructions")
-            location=data.get("location")
-            print("start following")
-            current_location, current_direction = follow_instructions(instructions, current_location, current_direction)
+            data = {"instructions": msg}
+        
+        print("the message is " + msg)
+         # NEW: Handle location corrections from supervisor
+        if data.get("type") == "location_update":
+            if data.get("robot_id") == robot.getName():
+                corrected_loc = data.get("location")
+                corrected_orient = data.get("orientation")
+                
+                print(f"[{robot.getName()}] LOCATION CORRECTION: "
+                      f"{current_location} → {corrected_loc}")
+                
+                current_location = corrected_loc
+                current_direction = corrected_orient
+        
+        # NEW: Handle charging start command
+        if data.get("type") == "charging_start":
+            if data.get("robot_id") == robot.getName():
+                print(f"[{robot.getName()}] CHARGING MODE ACTIVATED at {data.get('charger_location')}")
+                
+                # Stop all motors immediately
+                left_wheel_motor.setVelocity(0)
+                right_wheel_motor.setVelocity(0)
+                
+                # Set charging flag
+                is_charging = True
+                
+                # Send acknowledgment back to supervisor
+                ack_msg = {
+                    "type": "status",
+                    "robot_id": robot.getName(),
+                    "location": current_location,
+                    "orientation": current_direction,
+                    "state": "charging",
+                    "timestamp": time.time()
+                }
+                emitter.send(json.dumps(ack_msg).encode("utf-8"))
+                print(f"[{robot.getName()}] Sent charging acknowledgment to supervisor")
+        
+        # NEW: Handle charging complete command
+        elif data.get("type") == "charging_complete":
+            if data.get("robot_id") == robot.getName():
+                print(f"[{robot.getName()}] CHARGING COMPLETE - Battery: {data.get('final_battery', 'N/A')}%")
+                
+                # Clear charging flag
+                is_charging = False
+                
+                # Send idle status
+                idle_msg = {
+                    "type": "status",
+                    "robot_id": robot.getName(),
+                    "location": current_location,
+                    "orientation": current_direction,
+                    "state": "idle",
+                    "timestamp": time.time()
+                }
+                emitter.send(json.dumps(idle_msg).encode("utf-8"))
+                print(f"[{robot.getName()}] Ready for new tasks")
+        
+        # Existing instruction handling - BUT ONLY IF NOT CHARGING
+        elif data.get("type") == "assign" and data.get("robot_id") == robot.getName():
+            if not is_charging:  # NEW: Check charging flag
+                
+                instructions = data.get("instructions")
+                location = data.get("location")
+                current_location=location
+                print("start following",instructions,current_location,current_direction)
+                if (instructions!="S"):
+                    current_location, current_direction = follow_instructions(
+                        instructions, current_location, current_direction
+                    )
+                print("following_complete")
+            else:
+                print(f"[{robot.getName()}] Ignoring task assignment - currently charging")
+        
         receiver.nextPacket()
+    
+    # NEW: If charging, continuously send heartbeat (optional but good practice)
+    if is_charging:
+        # Send status update every ~2 seconds
+        if int(time.time() * 10) % 20 == 0:  # Rough 2-second interval
+            status_msg = {
+                "type": "status",
+                "reason":"still charing",
+                "robot_id": robot.getName(),
+                "location": current_location,
+                "orientation": current_direction,
+                "state": "charging",
+                "timestamp": time.time()
+            }
+            emitter.send(json.dumps(status_msg).encode("utf-8"))
 
+# Enter here exit cleanup code.
 # Enter here exit cleanup code.
