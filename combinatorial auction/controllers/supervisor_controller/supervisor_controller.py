@@ -6,6 +6,8 @@ import heapq
 import re
 from dataclasses import dataclass, field
 from typing import Dict, Optional, List, Tuple
+import itertools
+from collections import defaultdict
 
 # --- Webots Initialization (Must be first for time sync) ---
 sup = Supervisor()
@@ -207,8 +209,8 @@ DEFAULT_MOVE_DRAIN = 0.25
 
 known_robots = {
     "Khepera IV": {
-        "id": "Khepera IV", "node": "0,0", "x": 0, "y": 0, 
-        "orientation": 90, "battery": 100.0, "max_capacity": 5.0, 
+        "id": "Khepera IV", "node": "8,1", "x": 8, "y": 1, 
+        "orientation": 0, "battery": 100.0, "max_capacity": 5.0, 
         "state": "idle", "current_task": None, "last_update": current_sim_time,
         "initialized": False,  # <--- NEW FLAG
         "battery_history": [],        # List of (time, battery, state)
@@ -223,8 +225,8 @@ known_robots = {
         "task_total_distance": 0.0,
     },
     "Khepera IV-1": {
-        "id": "Khepera IV-1", "node": "8,3", "x": 8, "y": 3, 
-        "orientation": 90, "battery": 25.0, "max_capacity": 5.0, 
+        "id": "Khepera IV-1", "node": "2,8", "x": 2, "y": 8, 
+        "orientation": 90, "battery": 100.0, "max_capacity": 5.0, 
         "state": "idle", "current_task": None, "last_update": current_sim_time,
         "initialized": False,  # <--- NEW FLAG
         "battery_history": [],        # List of (time, battery, state)
@@ -244,6 +246,36 @@ tasks: Dict[str, Task] = {}
 #pending_heap = []
 
 # --- Logic Functions ---
+
+def process_assigned_but_idle_robots():
+    """
+    Safety mechanism: Checks if any idle robot has pending work 
+    (queued tasks or stuck current assignments) and forces execution.
+    """
+    for rid, r in known_robots.items():
+        # Only check active, initialized robots that are sitting idle
+        if r["state"] == "idle" and r.get("initialized", False):
+            
+            # CASE 1: Robot has a 'current_task' but is somehow IDLE (Stuck state)
+            stuck_tid = r.get("current_task")
+            if stuck_tid:
+                if stuck_tid in tasks and tasks[stuck_tid].status != "delivered":
+                    print(f"[WATCHDOG] Kickstarting stuck task {stuck_tid} on {rid}")
+                    assign_task(r, tasks[stuck_tid])
+                    continue # Moved to busy, check next robot
+
+            # CASE 2: Robot has 'queued_tasks' (From a bundle) but is IDLE
+            # This handles the specific "Chained Task" scenario if the transition failed
+            queue = r.get("queued_tasks", [])
+            if queue and len(queue) > 0:
+                next_tid = queue.pop(0) # Get next task
+                
+                if next_tid in tasks:
+                    print(f"[WATCHDOG] Kickstarting queued task {next_tid} on {rid}")
+                    assign_task(r, tasks[next_tid])
+                    continue
+
+
 
 def update_batteries():
     """Simulates battery drain AND charging physics."""
@@ -300,6 +332,10 @@ def update_batteries():
             r["battery"] = max(0.0, r["battery"] - drain)
             
         r["last_update"] = now
+        
+        
+        
+        
 def monitor_charging_needs():
     """
     Checks idle robots. If battery is below their PERSONAL safe threshold,
@@ -533,89 +569,416 @@ def check_feasibility_and_cost(robot, task):
     except nx.NetworkXNoPath:
         return float('inf')
         
+# ------------------------- Combinatorial Auction (Exact DP per robot) -------------------------
+# Parameters: tune these
+G_MAX_BUNDLE_SIZE = 3    # `g` : max tasks per robot bundle (start with 2 or 3)
+BEAM_WIDTH = 12          # unused here but kept for possible beam variants
+MAX_BUNDLE_COST_THRESHOLD = 500.0  # same as your earlier threshold
+
+# Precompute pairwise shortest-path distances between all relevant nodes
+# We build D[node_u][node_v] = shortest distance (float). Use graph G.
+def precompute_distance_matrix(G):
+    nodes = list(G.nodes)
+    D = {u: {} for u in nodes}
+    for u in nodes:
+        # single-source Dijkstra for speed and reliability
+        lengths = nx.single_source_dijkstra_path_length(G, u, weight='length')
+        for v, L in lengths.items():
+            D[u][v] = L
+    return D
+
+# Build D (call once)
+D = precompute_distance_matrix(G)
+print("[SUPERVISOR] Precomputed distance matrix for combinational auction.")
+
+# ---- basic travel / energy helpers (adapted to your constants & robot data) ----
+def travel_time(distance, robot_speed):
+    if robot_speed <= 0: return float('inf')
+    return distance / robot_speed
+
+def energy_for_leg(distance, robot, loaded=False, task_weight=0.0):
+    base_drain = robot.get("learned_move_rate", BATTERY_DRAIN_MOVE)
+    if loaded:
+        drain = base_drain * (1.0 + (task_weight * WEIGHT_DRAIN_FACTOR))
+    else:
+        drain = base_drain
+    speed = robot.get("learned_speed", AVG_ROBOT_SPEED)
+    t = travel_time(distance, speed)
+    return t * drain
+
+# ---- evaluate a full ordered sequence of tasks for a robot ----
+def evaluate_sequence(robot, ordered_task_ids):
+    """
+    For a robot and an ordered list of task ids (order of tasks, interpreted as
+    visit pick->drop for each task in that list), compute feasibility (battery reserve
+    at each step) and compute final bid (cost) using same economic model as check_feasibility_and_cost.
+    Returns: (feasible:bool, final_bid:float, battery_profile:list, details:dict)
+    """
+    if not ordered_task_ids:
+        return False, None, None, {"reason": "empty_sequence"}
+    current_node = robot.get("node")
+    battery = robot["battery"]
+    speed = robot.get("learned_speed", AVG_ROBOT_SPEED)
+
+    battery_profile = [battery]
+    time_total = 0.0
+    energy_used_total = 0.0
+    min_buffer = float('inf')
+
+    # accumulate distances for time_cost computation
+    deadhead_distance = 0.0
+    loaded_distance = 0.0
+
+    for tid in ordered_task_ids:
+        if tid not in tasks:
+            return False, None, None, {"reason": "task_missing", "task": tid}
+        t = tasks[tid]
+        # node distances via precomputed D
+        d1 = D.get(current_node, {}).get(t.pickup, float('inf'))
+        if d1 == float('inf'):
+            return False, None, None, {"reason": "no_path_to_pickup", "task": tid}
+        e1 = energy_for_leg(d1, robot, loaded=False, task_weight=0.0)
+        t1 = travel_time(d1, speed)
+        time_total += t1
+        energy_used_total += e1
+        battery -= e1
+        battery_profile.append(battery)
+        min_buffer = min(min_buffer, battery - CRITICAL_BATTERY_RESERVE)
+        if battery < CRITICAL_BATTERY_RESERVE:
+            return False, None, None, {"reason": "battery_below_reserve_on_pick", "task": tid}
+        deadhead_distance += d1
+
+        d2 = D.get(t.pickup, {}).get(t.drop, float('inf'))
+        if d2 == float('inf'):
+            return False, None, None, {"reason": "no_path_pick_to_drop", "task": tid}
+        e2 = energy_for_leg(d2, robot, loaded=True, task_weight=t.weight)
+        t2 = travel_time(d2, speed)
+        time_total += t2
+        energy_used_total += e2
+        battery -= e2
+        battery_profile.append(battery)
+        min_buffer = min(min_buffer, battery - CRITICAL_BATTERY_RESERVE)
+        if battery < CRITICAL_BATTERY_RESERVE:
+            return False, None, None, {"reason": "battery_below_reserve_on_drop", "task": tid}
+        loaded_distance += d2
+
+        current_node = t.drop
+
+    # return to nearest charger
+    best_dist_charger = float('inf')
+    for ch in CHARGERS:
+        d = D.get(current_node, {}).get(ch, float('inf'))
+        if d < best_dist_charger:
+            best_dist_charger = d
+    if best_dist_charger == float('inf'):
+        return False, None, None, {"reason": "no_path_to_charger"}
+    e3 = energy_for_leg(best_dist_charger, robot, loaded=False, task_weight=0.0)
+    t3 = travel_time(best_dist_charger, speed)
+    time_total += t3
+    energy_used_total += e3
+    battery -= e3
+    battery_profile.append(battery)
+    min_buffer = min(min_buffer, battery - CRITICAL_BATTERY_RESERVE)
+    if battery < CRITICAL_BATTERY_RESERVE:
+        return False, None, None, {"reason": "battery_below_reserve_on_return"}
+
+    # Economic cost (same model as your single-task)
+    time_cost = ((deadhead_distance * 1.5) + loaded_distance) / speed
+    recovery_cost = energy_used_total / CHARGE_RATE
+    buffer = min_buffer
+    risk_cost = 20.0 * math.exp(-0.2 * buffer)
+
+    # aging & priority aggregation: use average wait time and average priority
+    current_time = sup.getTime()
+    wait_times = [max(0.0, current_time - tasks[tid].request_time) for tid in ordered_task_ids]
+    avg_wait = sum(wait_times) / max(1, len(wait_times))
+    aging_factor = 1.0 + (avg_wait / 30.0)
+    priorities = [tasks[tid].priority for tid in ordered_task_ids]
+    priority_factor = 3.0 / max(1, sum(priorities) / len(priorities))
+
+    total_physical_cost = time_cost + recovery_cost + risk_cost
+    final_bid = total_physical_cost / (priority_factor * aging_factor)
+
+    details = {
+        "time_total": time_total,
+        "energy_used_total": energy_used_total,
+        "battery_profile": battery_profile,
+        "min_buffer": min_buffer,
+        "deadhead": deadhead_distance,
+        "loaded": loaded_distance
+    }
+    return True, final_bid, battery_profile, details
+
+# ---- exact DP for ordering a small subset of tasks (pickup before drop precedence) ----
+def best_sequence_for_subset(robot, subset_task_ids):
+    """
+    subset_task_ids: list of task ids (k)
+    Returns: (ordered_task_ids, dp_time_cost) or (None, inf) if impossible (no path to charger)
+    This DP minimizes travel-time including final leg to charger.
+    """
+    k = len(subset_task_ids)
+    # Map node indices: for i in 0..k-1 => pick index = 2*i, drop index = 2*i+1
+    node_positions = []
+    node_to_task = {}
+    for i, tid in enumerate(subset_task_ids):
+        t = tasks[tid]
+        node_positions.append(t.pickup)   # 2*i
+        node_positions.append(t.drop)     # 2*i + 1
+        node_to_task[2*i] = ("pick", tid)
+        node_to_task[2*i + 1] = ("drop", tid)
+
+    FULL_MASK = (1 << (2*k)) - 1
+    # DP map: DP[mask][last_idx] -> min_time
+    DP = [defaultdict(lambda: float('inf')) for _ in range(1 << (2*k))]
+    PREV = {}
+
+    start_node = robot.get("node")
+    # Initialize by going to any pick node
+    for pick_idx in range(0, 2*k, 2):
+        node_id = node_positions[pick_idx]
+        dist = D.get(start_node, {}).get(node_id, float('inf'))
+        if dist == float('inf'): continue
+        DP[1 << pick_idx][pick_idx] = travel_time(dist, robot.get("learned_speed", AVG_ROBOT_SPEED))
+        PREV[(1 << pick_idx, pick_idx)] = (0, -1)
+
+    # iterate masks
+    for mask in range(1 << (2*k)):
+        for last_idx, cost_so_far in list(DP[mask].items()):
+            last_node_graph_id = start_node if last_idx == -1 else node_positions[last_idx]
+            for nxt in range(2*k):
+                if (mask >> nxt) & 1: 
+                    continue
+                # If nxt is a drop node ensure its pick visited
+                if nxt % 2 == 1:
+                    pick_idx = nxt - 1
+                    if ((mask >> pick_idx) & 1) == 0:
+                        continue
+                nxt_node_graph_id = node_positions[nxt]
+                dist = D.get(last_node_graph_id, {}).get(nxt_node_graph_id, float('inf'))
+                if dist == float('inf'):
+                    continue
+                ttime = travel_time(dist, robot.get("learned_speed", AVG_ROBOT_SPEED))
+                new_mask = mask | (1 << nxt)
+                new_cost = cost_so_far + ttime
+                if new_cost < DP[new_mask].get(nxt, float('inf')):
+                    DP[new_mask][nxt] = new_cost
+                    PREV[(new_mask, nxt)] = (mask, last_idx)
+
+    # add final leg to charger
+    best_cost = float('inf')
+    best_end = None
+    for last_idx, cost_so_far in DP[FULL_MASK].items():
+        last_node_id = node_positions[last_idx]
+        # nearest charger distance
+        best_ch_dist = min((D.get(last_node_id, {}).get(ch, float('inf')) for ch in CHARGERS), default=float('inf'))
+        if best_ch_dist == float('inf'):
+            continue
+        total = cost_so_far + travel_time(best_ch_dist, robot.get("learned_speed", AVG_ROBOT_SPEED))
+        if total < best_cost:
+            best_cost = total
+            best_end = last_idx
+
+    if best_end is None:
+        return None, float('inf')
+
+    # reconstruct node visit order
+    seq_nodes = []
+    mask = FULL_MASK
+    last = best_end
+    while mask:
+        seq_nodes.append(last)
+        prev_mask, prev_last = PREV[(mask, last)]
+        mask, last = prev_mask, prev_last
+    seq_nodes.reverse()
+
+    # convert visit nodes to ordered task ids (every two nodes correspond to one task in pick->drop order)
+    ordered_task_ids = []
+    # Since DP ensured picks before drops, iterate and append task ids when encountering a pick node
+    picked = set()
+    for node_idx in seq_nodes:
+        kind, tid = node_to_task[node_idx]
+        if kind == "pick" and tid not in picked:
+            ordered_task_ids.append(tid)
+            picked.add(tid)
+    return ordered_task_ids, best_cost
+
+# ---- generate all feasible bundles for a robot up to size g ----
+def generate_exact_bundles_for_robot(robot, waiting_task_list, g=G_MAX_BUNDLE_SIZE):
+    bundles = []
+    N = len(waiting_task_list)
+    task_id_list = [t.id for t in waiting_task_list]
+    # quick capacity filter
+    weight_ok = {t.id: (t.weight <= robot["max_capacity"]) for t in waiting_task_list}
+
+    for k in range(1, min(g, N) + 1):
+        for subset in itertools.combinations(task_id_list, k):
+            # skip overweight tasks
+            if not all(weight_ok[tid] for tid in subset):
+                continue
+
+            # cheap lower bound energy/distance prune
+            start = robot.get("node")
+            min_start_to_pick = min((D.get(start, {}).get(tasks[tid].pickup, float('inf')) for tid in subset), default=float('inf'))
+            if min_start_to_pick == float('inf'):
+                continue
+            # sum pick->drop reachable check
+            sum_pd = 0.0
+            reachable = True
+            for tid in subset:
+                d = D.get(tasks[tid].pickup, {}).get(tasks[tid].drop, float('inf'))
+                if d == float('inf'):
+                    reachable = False
+                    break
+                sum_pd += d
+            if not reachable: continue
+
+            # min drop->charger
+            min_drop_to_charger = float('inf')
+            for tid in subset:
+                for ch in CHARGERS:
+                    d = D.get(tasks[tid].drop, {}).get(ch, float('inf'))
+                    if d < min_drop_to_charger:
+                        min_drop_to_charger = d
+            if min_drop_to_charger == float('inf'):
+                continue
+
+            # lower-bound energy estimate
+            lb_dist = min_start_to_pick + sum_pd + min_drop_to_charger
+            # approximate lower bound energy: treat all loaded legs as loaded (conservative)
+            lb_energy = energy_for_leg(min_start_to_pick, robot, loaded=False)
+            for tid in subset:
+                lb_energy += energy_for_leg(D.get(tasks[tid].pickup, {}).get(tasks[tid].drop, 0.0), robot, loaded=True, task_weight=tasks[tid].weight)
+            lb_energy += energy_for_leg(min_drop_to_charger, robot, loaded=False)
+
+            if robot["battery"] - lb_energy < CRITICAL_BATTERY_RESERVE:
+                continue
+
+            # compute best sequence for this subset
+            ordered_task_ids, dp_time_cost = best_sequence_for_subset(robot, list(subset))
+            if ordered_task_ids is None:
+                continue
+
+            feasible, final_bid, battery_profile, details = evaluate_sequence(robot, ordered_task_ids)
+            if not feasible:
+                # For tiny k (<=3) brute force permutations as fallback
+                if k <= 3:
+                    best_fb = None
+                    best_bid = float('inf')
+                    for perm in itertools.permutations(subset):
+                        feas2, bid2, bp2, det2 = evaluate_sequence(robot, list(perm))
+                        if feas2 and bid2 < best_bid:
+                            best_bid = bid2
+                            best_fb = (list(perm), bid2, bp2, det2)
+                    if best_fb is None:
+                        continue
+                    ordered_task_ids, final_bid, battery_profile, details = best_fb
+                else:
+                    continue
+
+            # add bundle
+            bundles.append({
+                "robot_id": robot["id"],
+                "tasks": ordered_task_ids,
+                "cost": final_bid,
+                "battery_profile": battery_profile,
+                "details": details
+            })
+    return bundles
+
+# ---- Greedy Winner Determination over Bundles ----
+def winner_determination_greedy(bundles):
+    """
+    Select disjoint bundles (each robot at most one bundle, each task at most once).
+    Uses cost_per_task = cost / len(tasks) to sort bundles (tends to prefer efficient multi-task bundles).
+    Returns list of chosen bundles.
+    """
+    chosen = []
+    used_robots = set()
+    used_tasks = set()
+
+    # sort by cost per task ascending (pragmatic). If you want strict min-total-cost selection, use MILP instead.
+    bundles_sorted = sorted(bundles, key=lambda b: (b["cost"] / max(1, len(b["tasks"])), b["cost"]))
+    for b in bundles_sorted:
+        if b["robot_id"] in used_robots:
+            continue
+        conflict = False
+        for tid in b["tasks"]:
+            if tid in used_tasks:
+                conflict = True
+                break
+        if conflict:
+            continue
+        # optional: skip absurdly expensive bundles
+        if b["cost"] > MAX_BUNDLE_COST_THRESHOLD:
+            continue
+        chosen.append(b)
+        used_robots.add(b["robot_id"])
+        used_tasks.update(b["tasks"])
+    return chosen
+
+# ---- New allocate_pending_tasks using bundle generation ----
 def allocate_pending_tasks():
-    """
-    Global Batch Auction with per-task wait-buffer (priority-based holding).
-    Tasks are only considered for bidding after a short wait window depending on their priority.
-    """
-    # Parameters: tuning knob
-    WAIT_STEP = 5.0            # seconds per priority level (priority 2 waits WAIT_STEP, p3 waits 2*WAIT_STEP, ...)
-
-    # 1. Identify Valid Agents
     idle_robots = [r for r in known_robots.values() if r["state"] == "idle" and r.get("initialized", False)]
-    if not idle_robots:
+    if not idle_robots: 
+        return
+    waiting_tasks_list = [t for t in tasks.values() if t.status == "waiting"]
+    if not waiting_tasks_list:
         return
 
-    # 2. Identify waiting tasks and filter by wait-buffer eligibility
-    now = sup.getTime()
-    waiting_all = [t for t in tasks.values() if t.status == "waiting"]
+    # Option: spatial filter per robot to reduce candidate subsets (radius in meters)
+    SPATIAL_FILTER_RADIUS = 50.0  # tune: ignore tasks whose pickup is far from robot start (reduces combos)
+    robot_to_local_tasks = {}
+    for r in idle_robots:
+        local = []
+        for t in waiting_tasks_list:
+            d = D.get(r["node"], {}).get(t.pickup, float('inf'))
+            if d <= SPATIAL_FILTER_RADIUS:
+                local.append(t)
+        # fallback: if no local tasks, consider all (prevents starvation)
+        if not local:
+            local = waiting_tasks_list
+        robot_to_local_tasks[r["id"]] = local
 
-    if not waiting_all:
+    # Generate bundles in parallel-friendly loop (sequential here)
+    all_bundles = []
+    for r in idle_robots:
+        local_tasks = robot_to_local_tasks.get(r["id"], waiting_tasks_list)
+        b = generate_exact_bundles_for_robot(r, local_tasks, g=G_MAX_BUNDLE_SIZE)
+        # annotate actual robot pointer for assignment convenience
+        for item in b:
+            item["robot_ref"] = r
+        all_bundles.extend(b)
+
+    if not all_bundles:
         return
 
-    eligible_tasks = []
-    skipped_tasks = []
-    for t in waiting_all:
-        # ensure priority is at least 1
-        p = max(1, int(t.priority) if t.priority is not None else 1)
-        wait_needed = (p - 1) * WAIT_STEP
-        time_waited = max(0.0, now - t.request_time)
-        if time_waited >= wait_needed:
-            eligible_tasks.append(t)
-        else:
-            skipped_tasks.append((t.id, p, time_waited, wait_needed))
+    # Winner determination
+    winners = winner_determination_greedy(all_bundles)
 
-    # Debug: show skipped tasks (optional)
-    if skipped_tasks:
-        # Only print small summary to avoid flooding logs
-        skip_summary = ", ".join([f"{tid}(p{p},{tw:.1f}/{wn:.1f})" for tid, p, tw, wn in skipped_tasks])
-        print(f"[AUCTION] Skipping not-yet-eligible tasks: {skip_summary}")
-
-    if not eligible_tasks:
-        # Nothing eligible yet; wait for buffer to expire
-        return
-
-    # 3. Generate the bid matrix (pairwise bids as before)
-    all_bids = []
-    for task in eligible_tasks:
-        for robot in idle_robots:
-            cost = check_feasibility_and_cost(robot, task)
-            if cost != float('inf'):
-                all_bids.append({
-                    "cost": cost,
-                    "task": task,
-                    "robot": robot
-                })
-
-    if not all_bids:
-        return
-
-    # 4. Determine winners (greedy global by cost)
-    all_bids.sort(key=lambda x: x["cost"])
-
-    assigned_task_ids = set()
-    assigned_robot_ids = set()
-
-    for bid in all_bids:
-        t = bid["task"]
-        r = bid["robot"]
-
-        # Skip if already taken
-        if t.id in assigned_task_ids: 
+    # Execute assignments for chosen bundles
+    for w in winners:
+        robot = w["robot_ref"]
+        task_ids = w["tasks"]
+        # We assign only the first task to the robot's current_task and rely on its internal controller to proceed,
+        # or optionally send the full route as a combined instruction (this depends on robot's firmware).
+        # For simplicity, we assign tasks sequentially: we send instructions for the first task (pick->drop),
+        # and store the remaining tasks in robot state as 'queued_tasks' to be used when it becomes idle again.
+        first_tid = task_ids[0]
+        if first_tid not in tasks:
             continue
-        if r["id"] in assigned_robot_ids: 
-            continue
+        # mark all tasks in bundle as assigned to this robot (so they are not visible to other bundles)
+        for tid in task_ids:
+            if tid in tasks:
+                tasks[tid].assigned_robot = robot["id"]
+                tasks[tid].status = "assigned"
+        # Attach queued_tasks on robot object for future scheduling
+        robot["queued_tasks"] = task_ids[1:]  # remaining tasks to run after first completes
+        # Now assign the first task using your existing assign_task
+        assign_task(robot, tasks[first_tid])
+        print(f"[AUCTION] Robot {robot['id']} assigned bundle {task_ids} (cost {w['cost']:.1f})")
 
-        # Final additional check: make sure task still waiting (race safety)
-        if t.status != "waiting":
-            continue
+# -----------------------------------------------------------------------------------------------
 
-        # Assign (calls your existing assign_task)
-        assign_task(r, t)
-
-        # Mark as taken
-        assigned_task_ids.add(t.id)
-        assigned_robot_ids.add(r["id"])
 
 def finalize_and_learn(robot):
     """
@@ -799,18 +1162,40 @@ while sup.step(timestep) != -1:
                         # CASE B: TASK COMPLETION (The Simplified Fix)
                         # If robot stops at the Drop location, the task is DONE.
                         # We don't care if it skipped the "busy_loaded" state update at pickup.
+                        # CASE B: TASK COMPLETION
                         elif r.get("current_task") and r["node"] == r.get("current_drop"):
                             
+                            # 1. Finalize the current task
                             finalize_and_learn(r)
-                            
-                            r["state"] = "idle"
                             tid = r.get("current_task")
                             if tid and tid in tasks:
                                 tasks[tid].status = "delivered"
                             
-                            r["current_task"] = None
-                            print(f"{rid} finished delivery at {r['node']}. Mission Complete.")
+                            print(f"{rid} finished {tid} at {r['node']}.")
 
+                            # 2. CHECK FOR CHAINED TASKS (The Fix)
+                            # If we have tasks queued from the bundle, start the next one IMMEDIATELY.
+                            if r.get("queued_tasks") and len(r["queued_tasks"]) > 0:
+                                next_tid = r["queued_tasks"].pop(0) # Get next task
+                                
+                                if next_tid in tasks:
+                                    print(f"[{rid}] Chain Active: Autostarting next task {next_tid}")
+                                    # This resets state to 'busy_unloaded' and sends new instructions
+                                    assign_task(r, tasks[next_tid]) 
+                                    
+                                    # IMPORTANT: Do NOT set state to idle. 
+                                    # The robot effectively "teleports" logic to the next job.
+                                    # If pickup is at current loc, the next loop iteration will
+                                    # catch it and switch to 'busy_loaded' instantly.
+                                else:
+                                    # Handle weird edge case where task vanished
+                                    r["state"] = "idle"
+                                    r["current_task"] = None
+                            else:
+                                # 3. No more tasks? NOW go idle.
+                                r["state"] = "idle"
+                                r["current_task"] = None
+                                print(f"{rid} mission complete. Waiting for new orders.")
                         # CASE C: PICKUP HANDSHAKE (Optional Phase 1)
                         # Only relevant if you explicitly split the path. 
                         # If robot stops at pickup, we update state and send next path.
@@ -862,8 +1247,8 @@ while sup.step(timestep) != -1:
         except Exception as e:
             print(f"Error processing msg: {e}")
             continue
-    #print(tasks)
-    #print(known_robots)
+    print(tasks)
+    print(known_robots)
     debug_status=[]
     for rid, r in known_robots.items():
         # Format: Name @ [X, Y] | Node: "0,0"
@@ -873,3 +1258,4 @@ while sup.step(timestep) != -1:
     print(" | ".join(debug_status))
 
     allocate_pending_tasks()
+    process_assigned_but_idle_robots()

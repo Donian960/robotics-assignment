@@ -31,60 +31,30 @@ NODE_HASH = {
 # Map Reference for clarity:
 # West Zone: London(0,0), Paris(2,3), Rome(2,7), Madrid(2,8)
 # East Zone: Lisbon(8,0), Vienna(8,3), Berlin(6,3), Prague(7,7)
-
 schedule = [
-    # --- WAVE 1: Initial Distribution (Spatial Separation) ---
+    # --- COMBINATORIAL TEST ---
+    # Both tasks are released instantly (Time 1.0).
+    # They are located in the far South (Row 8).
     
-    # Robot A (Starts North): Stays on Row 2
-    # Route: 2,3 (Paris) -> 2,8 (Madrid)
+    # TASK 1: The "Lead" Task
+    # Pickup is far from robots.
+    # Drop-off is [8, 3].
     {
         "time": 1.0, 
-        "request_id": "req-01", 
-        "pickup": "2,3", 
-        "drop": "2,8", 
-        "weight": 0.5, 
-        "priority": 1
-    },
-    {
-        "time": 2.0, 
-        "request_id": "req-02", 
-        "pickup": "8,3", 
-        "drop": "8,0", 
-        "weight": 0.5, 
+        "request_id": "chain-start-01", 
+        "pickup": "8,0", 
+        "drop": "8,3", 
+        "weight": 5.0, 
         "priority": 1
     },
 
     {
-        "time": 15.0, 
-        "request_id": "req-03", 
-        "pickup": "8,0", 
-        "drop": "8,3", 
-        "weight": 0.5, 
-        "priority": 1
-    },
-    {
-        "time": 17.0, 
-        "request_id": "req-04", 
+        "time": 1.0, 
+        "request_id": "chain-end-02", 
         "pickup": "8,3", 
-        "drop": "2,3", 
-        "weight": 0.5, 
+        "drop": "7,7", 
+        "weight": 5.0, 
         "priority": 1
-    },
-    {
-        "time": 30.0, 
-        "request_id": "req-05", 
-        "pickup": "2,3", 
-        "drop": "2,8",
-        "weight": 0.5, 
-        "priority": 2
-    },
-    {
-        "time": 32.0, 
-        "request_id": "req-06", 
-        "pickup": "8,3", 
-        "drop": "8,0", 
-        "weight": 0.5, 
-        "priority": 2
     }
 ]
 for req in schedule:

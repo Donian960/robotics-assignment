@@ -1,0 +1,14 @@
+- Step 0: Set up testing environment (layout of paths & end destinations) DONE
+- Step 1: Robot can follow a line DONE
+- Step 2: Robot stops if it detects an interchange DONE 
+- Step 3: Robot correctly changes direction at the interchange DONE
+- Step 4: Robot stops if it detects an end destination DONE?
+
+- Step A: Robot follows directly through the intersection without stopping if necessary DONE
+- Step B: Robot goes to higher speeds on straights if safe DONE
+- Step C: More precise stopping DONE
+
+- Step I: Comment code!! DONE
+- Step II: Test on non-grid map
+
+- Step END: Evaluation metrics of some kind
