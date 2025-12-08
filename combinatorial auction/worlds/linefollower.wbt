@@ -1,0 +1,106 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera4/protos/Khepera4.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/Pole.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation 0.5525226266929889 0.5638781200270218 -0.6138079608045759 2.0223436583641305
+  position 0.4405325237304947 1.0864066414450346 9.105430383780659
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 8 8
+  floorTileSize 4 4
+  floorAppearance Appearance {
+    texture ImageTexture {
+      url [
+        "../floor.png"
+      ]
+      repeatS FALSE
+      repeatT FALSE
+      filtering 0
+    }
+    textureTransform TextureTransform {
+      scale 0.5 0.5
+    }
+  }
+  wallHeight 0
+  wallAppearance Appearance {
+    texture ImageTexture {
+      url [
+        "../wall.png"
+      ]
+    }
+  }
+}
+Robot {
+  translation 3.27 -3.32 0
+  children [
+    Receiver {
+      channel 1
+      allowedChannels [
+        1
+      ]
+    }
+    Emitter {
+      channel 1
+      allowedChannels [
+        1
+      ]
+    }
+  ]
+  name "client robot"
+  controller "client_controller"
+  supervisor TRUE
+}
+Pole {
+  translation 3.18 -3.39 0
+  name "client pole"
+}
+Khepera4 {
+  hidden position_0_0 234.31025479856604
+  hidden position_0_1 242.79766245939464
+  hidden rotation_1 0.1293329546070077 -0.12933302037223274 0.9831306915634449 4.695376636473007
+  hidden rotation_2 -0.6862442441268173 0.6862442989494153 -0.24111739788376726 2.668390196118144
+  translation 2.5004 1.87129 -0.000160525
+  rotation -7.6378e-10 5.02331e-07 -1 -0.0011453071795859415
+  controller "my_controller"
+}
+Pole {
+  translation 3.22 3.3 0
+  name "main brain pole"
+}
+Robot {
+  translation 3.25 3.38 0
+  children [
+    Receiver {
+      channel 1
+      allowedChannels [
+        1
+      ]
+    }
+    Emitter {
+      channel 1
+      allowedChannels [
+        1
+      ]
+    }
+  ]
+  name "supervisor"
+  controller "supervisor_controller"
+  supervisor TRUE
+}
+Khepera4 {
+  translation -1.26 -2.5 0
+  rotation 0 0 1 -1.5707953071795862
+  name "Khepera IV-1"
+  controller "my_controller"
+}
