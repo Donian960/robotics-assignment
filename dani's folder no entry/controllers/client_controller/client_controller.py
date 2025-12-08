@@ -12,7 +12,7 @@ receiver = robot.getDevice("receiver")
 if receiver:
     receiver.enable(timestep)
 
-print(f"[{MY_ID}] client started. timestep={timestep} ms")
+#print(f"[{MY_ID}] client started. timestep={timestep} ms")
 
 NODE_HASH = {
     "London": "0,0",
@@ -116,7 +116,7 @@ def send_request(ev):
     try:
         emitter.send(json.dumps(msg).encode("utf-8"))
         # FIX: Removed msg['payload']
-        print(f"[{MY_ID}] sent {ev['request_id']} at +{time.time()-start_time:.2f}s")
+        #print(f"[{MY_ID}] sent {ev['request_id']} at +{time.time()-start_time:.2f}s")
     except Exception as e:
         print(f"[{MY_ID}] emitter.send failed for {ev['request_id']}: {e}")
 # main loop
@@ -140,9 +140,10 @@ while robot.step(timestep) != -1:
             except Exception:
                 msg = {"raw": str(raw)}
             if(msg.get("type")!="location"):
-                print(f"[{MY_ID}] received message: {msg}")
+                #print(f"[{MY_ID}] received message: {msg}")
+                pass
 
     # finish when done
     if now >= end_time and all(ev["sent"] for ev in schedule):
-        print(f"[{MY_ID}] finished schedule; exiting.")
+        #print(f"[{MY_ID}] finished schedule; exiting.")
         break

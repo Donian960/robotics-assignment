@@ -221,18 +221,18 @@ def trace(location, direction, turn):
     
     # Check if the current location exists and has a path in that direction
     if loc_str in MAP and direction in MAP[loc_str]:
-        print(f"Tracing: {location} -> {MAP[loc_str][direction]} (Dir: {direction})")
+        #print(f"Tracing: {location} -> {MAP[loc_str][direction]} (Dir: {direction})")
         return MAP[loc_str][direction], direction
     else:
         # If invalid move (wall/dead end), print warning and STAY PUT
-        print(f"WARNING: Wall detected at {location} facing {direction}. Staying put.")
+        #print(f"WARNING: Wall detected at {location} facing {direction}. Staying put.")
         return location, direction
         
 def wait_for_supervisor_config():
     """
     Blocks execution until initial state is received from Supervisor.
     """
-    print(f"[{robot.getName()}] Requesting config from Supervisor...")
+    #print(f"[{robot.getName()}] Requesting config from Supervisor...")
     
     # 1. Send the "I am awake" message
     msg = {
@@ -255,7 +255,7 @@ def wait_for_supervisor_config():
                     loc = data.get("location")
                     ori = data.get("orientation")
                     
-                    print(f"[{robot.getName()}] Config received: Loc={loc}, Dir={ori}")
+                    #print(f"[{robot.getName()}] Config received: Loc={loc}, Dir={ori}")
                     return loc, ori
                     
             except json.JSONDecodeError:
@@ -381,10 +381,10 @@ def follow_instructions(instructions,start_loc, start_dir):
                 if ci == "S": # if instruction is to stop, change to the idle state
                     state = "IDLE"
                     current_instruction += 1
-                    print(instructions)
-                    print(time.time() - start_time)
+                    #print(instructions)
+                    #print(time.time() - start_time)
                     send_status_update(robot.getName(), location, direction, "idle")
-                    print(location)
+                    #print(location)
                     
                 if ci == "F": # if instruction is to go forwards, change to the follow state
                     state = "FOLLOW"
@@ -445,15 +445,15 @@ def follow_instructions(instructions,start_loc, start_dir):
             
             return location, direction
             
-print(robot.getName())
-print(robot.getName())
+#print(robot.getName())
+#print(robot.getName())
 current_location, current_direction = wait_for_supervisor_config()
 
 # NEW: Charging state flag
 is_charging = False
 
 while robot.step(timestep) != -1:
-    print(robot.getName(), current_direction)
+    #print(robot.getName(), current_direction)
     
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
@@ -462,15 +462,15 @@ while robot.step(timestep) != -1:
         except json.JSONDecodeError:
             data = {"instructions": msg}
         
-        print("the message is " + msg)
+        #print("the message is " + msg)
          # NEW: Handle location corrections from supervisor
         if data.get("type") == "location_update":
             if data.get("robot_id") == robot.getName():
                 corrected_loc = data.get("location")
                 corrected_orient = data.get("orientation")
                 
-                print(f"[{robot.getName()}] LOCATION CORRECTION: "
-                      f"{current_location} → {corrected_loc}")
+                #print(f"[{robot.getName()}] LOCATION CORRECTION: "
+                #      f"{current_location} → {corrected_loc}")
                 
                 current_location = corrected_loc
                 current_direction = corrected_orient
@@ -478,7 +478,7 @@ while robot.step(timestep) != -1:
         # NEW: Handle charging start command
         if data.get("type") == "charging_start":
             if data.get("robot_id") == robot.getName():
-                print(f"[{robot.getName()}] CHARGING MODE ACTIVATED at {data.get('charger_location')}")
+                #print(f"[{robot.getName()}] CHARGING MODE ACTIVATED at {data.get('charger_location')}")
                 
                 # Stop all motors immediately
                 left_wheel_motor.setVelocity(0)
@@ -497,12 +497,12 @@ while robot.step(timestep) != -1:
                     "timestamp": time.time()
                 }
                 emitter.send(json.dumps(ack_msg).encode("utf-8"))
-                print(f"[{robot.getName()}] Sent charging acknowledgment to supervisor")
+                #print(f"[{robot.getName()}] Sent charging acknowledgment to supervisor")
         
         # NEW: Handle charging complete command
         elif data.get("type") == "charging_complete":
             if data.get("robot_id") == robot.getName():
-                print(f"[{robot.getName()}] CHARGING COMPLETE - Battery: {data.get('final_battery', 'N/A')}%")
+                #print(f"[{robot.getName()}] CHARGING COMPLETE - Battery: {data.get('final_battery', 'N/A')}%")
                 
                 # Clear charging flag
                 is_charging = False
@@ -517,7 +517,7 @@ while robot.step(timestep) != -1:
                     "timestamp": time.time()
                 }
                 emitter.send(json.dumps(idle_msg).encode("utf-8"))
-                print(f"[{robot.getName()}] Ready for new tasks")
+                #print(f"[{robot.getName()}] Ready for new tasks")
         
         # Existing instruction handling - BUT ONLY IF NOT CHARGING
         elif data.get("type") == "assign" and data.get("robot_id") == robot.getName():
@@ -526,15 +526,15 @@ while robot.step(timestep) != -1:
                 instructions = data.get("instructions")
                 location = data.get("location")
                 current_location=location
-                print("start following",instructions,current_location,current_direction)
+                #print("start following",instructions,current_location,current_direction)
                 if (instructions!="S"):
                     current_location, current_direction = follow_instructions(
                         instructions, current_location, current_direction
                     )
-                print("following_complete")
+                #print("following_complete")
             else:
-                print(f"[{robot.getName()}] Ignoring task assignment - currently charging")
-        
+                #print(f"[{robot.getName()}] Ignoring task assignment - currently charging")
+                pass
         receiver.nextPacket()
     
     # NEW: If charging, continuously send heartbeat (optional but good practice)

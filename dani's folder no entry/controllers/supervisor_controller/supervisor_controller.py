@@ -195,7 +195,7 @@ def find_nearest_node(x, y, coords):
 # --- State Initialization ---
 
 G, COORDS = build_graph(MAP)
-print(f"Graph built with {len(G.nodes)} nodes.")
+#print(f"Graph built with {len(G.nodes)} nodes.")
 
 # Use sup.getTime() for initial timestamps to match Webots simulation time
 current_sim_time = sup.getTime()
@@ -271,7 +271,7 @@ def update_batteries():
                         "timestamp": now
                     }
                     emitter.send(json.dumps(msg).encode('utf-8'))
-                    print(f"[SUPERVISOR] Sent charging_start command to {rid} at {clean_node}")
+                    #print(f"[SUPERVISOR] Sent charging_start command to {rid} at {clean_node}")
                 
                 # Charge the battery
                 r["battery"] = min(100.0, r["battery"] + (CHARGE_RATE * dt))
@@ -288,7 +288,7 @@ def update_batteries():
                         "timestamp": now
                     }
                     emitter.send(json.dumps(msg).encode('utf-8'))
-                    print(f"[SUPERVISOR] {rid} fully charged ({r['battery']:.1f}%) - sent resume command")
+                    #print(f"[SUPERVISOR] {rid} fully charged ({r['battery']:.1f}%) - sent resume command")
         else:
             # DRAINING LOGIC (Standard)
             if r["state"] != "idle":
@@ -330,7 +330,7 @@ def monitor_charging_needs():
         trigger_threshold = min(trigger_threshold, 90.0)
 
         if r["battery"] < trigger_threshold:
-            print(f"[{rid}] Low Battery ({r['battery']:.1f}% < {trigger_threshold:.1f}%). Routing to charger...")
+            #print(f"[{rid}] Low Battery ({r['battery']:.1f}% < {trigger_threshold:.1f}%). Routing to charger...")
             send_to_charger(r)
 
 def send_to_charger(robot):
@@ -355,7 +355,7 @@ def send_to_charger(robot):
             continue
             
     if best_charger is None:
-        print(f"CRITICAL: {robot['id']} cannot reach any charger!")
+        #print(f"CRITICAL: {robot['id']} cannot reach any charger!")
         return
 
     # 2. Generate Instructions
@@ -380,7 +380,7 @@ def send_to_charger(robot):
         "timestamp": sup.getTime()
     }
     emitter.send(json.dumps(msg).encode('utf-8'))
-    print(f"Sent {robot['id']} to charger at {best_charger}")
+    #print(f"Sent {robot['id']} to charger at {best_charger}")
 
 def update_robot_learning(robot):
     """
@@ -431,7 +431,7 @@ def update_robot_learning(robot):
     # Clear history to save memory (or keep a rolling window)
     robot["battery_history"] = [history[-1]] 
     
-    print(f"[{robot['id']} Learning] Idle: {robot['learned_idle_rate']:.4f}%/s | Move: {robot['learned_move_rate']:.4f}%/s")
+    #print(f"[{robot['id']} Learning] Idle: {robot['learned_idle_rate']:.4f}%/s | Move: {robot['learned_move_rate']:.4f}%/s")
 
 def check_feasibility_and_cost(robot, task):
     """
@@ -569,7 +569,7 @@ def allocate_pending_tasks():
     if skipped_tasks:
         # Only print small summary to avoid flooding logs
         skip_summary = ", ".join([f"{tid}(p{p},{tw:.1f}/{wn:.1f})" for tid, p, tw, wn in skipped_tasks])
-        print(f"[AUCTION] Skipping not-yet-eligible tasks: {skip_summary}")
+        #print(f"[AUCTION] Skipping not-yet-eligible tasks: {skip_summary}")
 
     if not eligible_tasks:
         # Nothing eligible yet; wait for buffer to expire
@@ -649,9 +649,9 @@ def finalize_and_learn(robot):
                     
         robot["learned_speed"] = new_speed
         
-        print(f"[{robot['id']} Learning] Job Done. "
-              f"Dist: {dist}m | Time: {total_time_taken:.1f}s | "
-              f"Real Speed: {measured_speed:.3f} | New Avg: {new_speed:.3f} m/s")
+        #print(f"[{robot['id']} Learning] Job Done. "
+        #      f"Dist: {dist}m | Time: {total_time_taken:.1f}s | "
+        #      f"Real Speed: {measured_speed:.3f} | New Avg: {new_speed:.3f} m/s")
 
 def assign_task(robot, task):
     task.assigned_robot = robot["id"]
@@ -712,7 +712,7 @@ def assign_task(robot, task):
     }
     emitter.send(json.dumps(msg_client).encode('utf-8'))
     
-    print(f"Allocated {task.id}. Dist: {total_dist:.1f}m. ETA: {est_duration:.1f}s")
+    #print(f"Allocated {task.id}. Dist: {total_dist:.1f}m. ETA: {est_duration:.1f}s")
 # --- Main Loop ---
 
 print("Server Running...")
@@ -757,7 +757,7 @@ while sup.step(timestep) != -1:
                         if r["state"] == "busy_unloaded" and nearest == r.get("current_pickup"):
                             r["state"] = "busy_loaded"
                             if r.get("current_task"): tasks[r["current_task"]].status = "picked"
-                            print(f"{rid} arrived at pickup {nearest}")
+                            #print(f"{rid} arrived at pickup {nearest}")
                             
                         elif r["state"] == "busy_loaded" and nearest == r.get("current_drop"):
                             r["state"] = "idle"
@@ -766,11 +766,11 @@ while sup.step(timestep) != -1:
                             r["current_task"] = None
                             r["current_pickup"] = None
                             r["current_drop"] = None
-                            print(f"{rid} delivered at {nearest}")
+                            #print(f"{rid} delivered at {nearest}")
                         elif r["state"] == "moving_to_charge" and nearest == r.get("current_drop"):
                             r["state"] = "charging"
                             r["current_drop"] = None
-                            print(f"{rid} docked at charger {nearest}. Charging started.")
+                            #print(f"{rid} docked at charger {nearest}. Charging started.")
                         if nearest != old_node and r["state"] not in ["idle", "charging"]:
                             # print(f"[SUPERVISOR] Correcting {rid}: {old_node} → {nearest}")
                             correction_msg = {
@@ -794,7 +794,7 @@ while sup.step(timestep) != -1:
                         elif r["state"] == "moving_to_charge" and r["node"] == r.get("current_drop"):
                             r["state"] = "charging"
                             r["current_drop"] = None
-                            print(f"{rid} docked at charger. Charging...")
+                            #print(f"{rid} docked at charger. Charging...")
 
                         # CASE B: TASK COMPLETION (The Simplified Fix)
                         # If robot stops at the Drop location, the task is DONE.
@@ -809,7 +809,7 @@ while sup.step(timestep) != -1:
                                 tasks[tid].status = "delivered"
                             
                             r["current_task"] = None
-                            print(f"{rid} finished delivery at {r['node']}. Mission Complete.")
+                            #print(f"{rid} finished delivery at {r['node']}. Mission Complete.")
 
                         # CASE C: PICKUP HANDSHAKE (Optional Phase 1)
                         # Only relevant if you explicitly split the path. 
@@ -819,7 +819,7 @@ while sup.step(timestep) != -1:
                             if r.get("current_task"): 
                                 tasks[r["current_task"]].status = "picked"
                             
-                            print(f"{rid} loaded at Pickup {r['node']}. Continuing to Drop...")
+                            #print(f"{rid} loaded at Pickup {r['node']}. Continuing to Drop...")
                             
                             # If we assign in two phases, send the second leg here.
                             # If we assigned the full path at start, this block just updates the status 
@@ -842,7 +842,7 @@ while sup.step(timestep) != -1:
                 )
                 tasks[rid] = t
                 #heapq.heappush(pending_heap, (-t.priority, sup.getTime(), rid))
-                print(f"New Request: {rid} ({t.pickup} -> {t.drop})")
+                #print(f"New Request: {rid} ({t.pickup} -> {t.drop})")
             elif mtype == "startup":
                 rid = msg.get("robot_id")
                 if rid in known_robots:
@@ -858,7 +858,7 @@ while sup.step(timestep) != -1:
                         "orientation": r["orientation"]
                     }
                     emitter.send(json.dumps(init_msg).encode('utf-8'))
-                    print(f"initialized {rid} at {r['node']} facing {r['orientation']}")
+                    #print(f"initialized {rid} at {r['node']} facing {r['orientation']}")
         except Exception as e:
             print(f"Error processing msg: {e}")
             continue
@@ -870,6 +870,6 @@ while sup.step(timestep) != -1:
         debug_status.append(f"{rid}: [{r['x']:.2f}, {r['y']:.2f}] (Node: {r['node']})")
     
     # Print on one line to avoid flooding the console
-    print(" | ".join(debug_status))
+    #print(" | ".join(debug_status))
 
     allocate_pending_tasks()
