@@ -6,7 +6,7 @@ minimizedPerspectives: 000000ff00000000fd0000000300000000000001ca0000039ffc02000
 maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
-textFiles: 1 "../dani's folder no entry/controllers/my_controller/my_controller.py" "../dani's folder no entry/controllers/supervisor_controller/supervisor_controller.py" "../dani's folder no entry/controllers/client_controller/client_controller.py"
+textFiles: 2 "controllers/my_controller/my_controller.py" "controllers/supervisor_controller/supervisor_controller.py" "controllers/client_controller/client_controller.py"
 consoles: Console:All:All
 renderingDevicePerspectives: Khepera IV-1:camera;0;0.605053;0;0
 renderingDevicePerspectives: Khepera IV:camera;0;0.166223;0;0

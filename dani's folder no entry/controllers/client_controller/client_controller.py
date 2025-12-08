@@ -45,9 +45,6 @@ schedule = [
         "weight": 0.5, 
         "priority": 1
     },
-
-    # Robot B (Starts South): Stays on Row 7/8
-    # Route: 7,7 (Prague) -> 8,0 (Lisbon)
     {
         "time": 2.0, 
         "request_id": "req-02", 
@@ -57,12 +54,6 @@ schedule = [
         "priority": 1
     },
 
-    # --- WAVE 2: The Swap (Forcing Travel) ---
-    # Time gap ensures they finished Wave 1.
-    
-    # Robot A (Ended at 2,8):
-    # New Pickup is 2,7 (Not 2,8). Forces move from 2,8 -> 2,7.
-    # Destination sends it South to 8,3.
     {
         "time": 15.0, 
         "request_id": "req-03", 
@@ -71,10 +62,6 @@ schedule = [
         "weight": 0.5, 
         "priority": 1
     },
-
-    # Robot B (Ended at 8,0):
-    # New Pickup is 8,3 (Not 8,0). Forces move from 8,0 -> 8,3.
-    # Destination sends it North to 2,3.
     {
         "time": 17.0, 
         "request_id": "req-04", 
@@ -83,11 +70,6 @@ schedule = [
         "weight": 0.5, 
         "priority": 1
     },
-
-    # --- WAVE 3: Cross-Map Cleanup ---
-    
-    # Robot A (Ended at 8,3):
-    # Pickup at 7,7 -> Drop 2,8
     {
         "time": 30.0, 
         "request_id": "req-05", 
@@ -96,9 +78,6 @@ schedule = [
         "weight": 0.5, 
         "priority": 2
     },
-
-    # Robot B (Ended at 2,3):
-    # Pickup at 2,7 -> Drop 8,0
     {
         "time": 32.0, 
         "request_id": "req-06", 

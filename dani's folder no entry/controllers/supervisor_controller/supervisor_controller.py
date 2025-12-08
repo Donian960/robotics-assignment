@@ -535,43 +535,62 @@ def check_feasibility_and_cost(robot, task):
         
 def allocate_pending_tasks():
     """
-    Performs a Global Batch Auction.
-    Does NOT use a greedy queue. It calculates the matrix of all possibilities
-    and selects the lowest cost pairings globally.
+    Global Batch Auction with per-task wait-buffer (priority-based holding).
+    Tasks are only considered for bidding after a short wait window depending on their priority.
     """
-    
+    # Parameters: tuning knob
+    WAIT_STEP = 5.0            # seconds per priority level (priority 2 waits WAIT_STEP, p3 waits 2*WAIT_STEP, ...)
+
     # 1. Identify Valid Agents
-    # Must be IDLE and Initialized
-    idle_robots = [r for r in known_robots.values() 
-                   if r["state"] == "idle" and r.get("initialized", False)]
-    
-    if not idle_robots: return
+    idle_robots = [r for r in known_robots.values() if r["state"] == "idle" and r.get("initialized", False)]
+    if not idle_robots:
+        return
 
-    # 2. Identify Valid Tasks
-    waiting_tasks = [t for t in tasks.values() if t.status == "waiting"]
-    
-    if not waiting_tasks: return
+    # 2. Identify waiting tasks and filter by wait-buffer eligibility
+    now = sup.getTime()
+    waiting_all = [t for t in tasks.values() if t.status == "waiting"]
 
-    # 3. Generate The Bid Matrix
-    # We create a list of ALL possible edges: (Cost, TaskID, RobotID)
+    if not waiting_all:
+        return
+
+    eligible_tasks = []
+    skipped_tasks = []
+    for t in waiting_all:
+        # ensure priority is at least 1
+        p = max(1, int(t.priority) if t.priority is not None else 1)
+        wait_needed = (p - 1) * WAIT_STEP
+        time_waited = max(0.0, now - t.request_time)
+        if time_waited >= wait_needed:
+            eligible_tasks.append(t)
+        else:
+            skipped_tasks.append((t.id, p, time_waited, wait_needed))
+
+    # Debug: show skipped tasks (optional)
+    if skipped_tasks:
+        # Only print small summary to avoid flooding logs
+        skip_summary = ", ".join([f"{tid}(p{p},{tw:.1f}/{wn:.1f})" for tid, p, tw, wn in skipped_tasks])
+        print(f"[AUCTION] Skipping not-yet-eligible tasks: {skip_summary}")
+
+    if not eligible_tasks:
+        # Nothing eligible yet; wait for buffer to expire
+        return
+
+    # 3. Generate the bid matrix (pairwise bids as before)
     all_bids = []
-
-    for task in waiting_tasks:
+    for task in eligible_tasks:
         for robot in idle_robots:
             cost = check_feasibility_and_cost(robot, task)
-            
             if cost != float('inf'):
-                # We store the tuple to sort later
                 all_bids.append({
                     "cost": cost,
                     "task": task,
                     "robot": robot
                 })
 
-    # 4. Determine Winners (Kruskal's Algorithm / Greedy-Global)
-    # Sort all bids by Cost (Lowest = Best)
-    # This ensures the "Best Match in the Universe" is picked first,
-    # rather than just the best match for the first robot found.
+    if not all_bids:
+        return
+
+    # 4. Determine winners (greedy global by cost)
     all_bids.sort(key=lambda x: x["cost"])
 
     assigned_task_ids = set()
@@ -580,22 +599,20 @@ def allocate_pending_tasks():
     for bid in all_bids:
         t = bid["task"]
         r = bid["robot"]
-        
-        # If this task OR this robot is already taken by a better bid, skip
-        if t.id in assigned_task_ids: continue
-        if r["id"] in assigned_robot_ids: continue
-        
-        # --- FINAL CHECK: Is charging better? ---
-        # Ideally, if the "Best Bid" cost is still astronomically high (due to low battery),
-        # the robot should choose to charge instead of working.
-        # Threshold: If Cost > 500 (arbitrary high risk), skip assignment.
-        if bid["cost"] > 500.0:
-            print(f"Bid rejected for {r['id']} on {t.id} (Cost {bid['cost']:.1f} too high/risky).")
+
+        # Skip if already taken
+        if t.id in assigned_task_ids: 
+            continue
+        if r["id"] in assigned_robot_ids: 
             continue
 
-        # Execute Assignment
+        # Final additional check: make sure task still waiting (race safety)
+        if t.status != "waiting":
+            continue
+
+        # Assign (calls your existing assign_task)
         assign_task(r, t)
-        
+
         # Mark as taken
         assigned_task_ids.add(t.id)
         assigned_robot_ids.add(r["id"])
