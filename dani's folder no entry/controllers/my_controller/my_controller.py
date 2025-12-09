@@ -2,6 +2,7 @@ from controller import Robot
 
 import time
 import json
+import statistics
 ## Defining Map
 
 # this is a dictionary containing the map data
@@ -262,7 +263,7 @@ def wait_for_supervisor_config():
                 pass
                 
     return [0, 0], 90 # Fallback (should not happen)
-
+    
 ## Main ##
 current_location = [0, 0] 
 current_direction = 90
@@ -270,10 +271,12 @@ def follow_instructions(instructions,start_loc, start_dir):
     location = start_loc
     direction = start_dir
     state = "TURN"
+    avoidance_state = "none"
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
     ## "STOPPING" - transition from FOLLOW to TURN
+    ## "AVOIDING" - avoiding an oncoming robot
     ## "IDLE" - unmoving
     
     #instructions = "FLLRRFFFLRRS"
@@ -309,7 +312,15 @@ def follow_instructions(instructions,start_loc, start_dir):
     last_sent_node = None
     previous_lookahead = get_position(300)
     while robot.step(timestep) != -1:
+       
         current_lookahead = get_position(300)
+        
+        #### Distance sensor readings for collision avoidance          
+        #Get long distance us reading
+        front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
+        front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
+        left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
+        
         if len(instructions) > 0 and current_instruction < len(instructions):
         
             if state == "FOLLOW": # if it is currently following a line
@@ -337,6 +348,13 @@ def follow_instructions(instructions,start_loc, start_dir):
                     left_wheel_motor.setVelocity(20 + (dif / 2))
                     right_wheel_motor.setVelocity(20 - (dif / 2))
                 
+                if front_us_sensor_value < 0.4: #Corresponds to approximately 0.3 metres
+                    state = "AVOIDING"
+                    avoidance_state = "incoming"
+                    front_ir_samples = []
+                    front_right_ir_samples = []
+                    right_ir_samples = []
+                    
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
                 
@@ -417,6 +435,44 @@ def follow_instructions(instructions,start_loc, start_dir):
                             
                             location, direction = trace(location, direction, ci)
                             send_status_update(robot.getName(), location, direction, "moving")
+
+            if state == "AVOIDING": # If avoiding, veer right
+
+                if avoidance_state == "incoming":
+                    #left_wheel_motor.setVelocity(0)
+                    #right_wheel_motor.setVelocity(0)
+                    
+                    avoidance_state = "turning"
+                
+                elif avoidance_state == "turning":
+                    turn_factor = -2
+                    left_wheel_motor.setVelocity(5-(turn_factor))
+                    right_wheel_motor.setVelocity(5+(turn_factor))
+                    
+                    if front_left_us_sensor_value < 1:
+                        left_wheel_motor.setVelocity(0)
+                        right_wheel_motor.setVelocity(0)
+                        avoidance_state = "avoided"
+                
+                elif avoidance_state == "avoided":
+                #turn based off distance
+                    
+                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2)/2)
+                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2)/2)
+                    if left_us_sensor_value < 1:
+                        avoidance_state = "passed"
+                
+                if avoidance_state == "passed":
+                    
+                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2))
+                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2))
+                    if left_us_sensor_value > 1.8:
+                        left_wheel_motor.setVelocity(0)
+                        right_wheel_motor.setVelocity(0)
+                        state = "FOLLOW"
+
+               
+            
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
