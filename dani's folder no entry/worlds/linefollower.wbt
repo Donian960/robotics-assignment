@@ -5,6 +5,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera4/protos/Khepera4.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/Pole.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera3/protos/Khepera3_Gripper.proto"
 
 WorldInfo {
 }
@@ -41,6 +42,32 @@ RectangleArena {
     }
   }
 }
+Solid {
+  translation -1.25 0.45 0.04
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.5
+        metalness 0
+      }
+      geometry Cylinder {
+        height 0.08
+        radius 0.013
+      }
+    }
+  ]
+  boundingObject Shape {
+    appearance PBRAppearance {
+    }
+    geometry Cylinder {
+      height 0.1
+      radius 0.05
+    }
+  }
+  physics Physics {
+  }
+}
 Robot {
   translation 3.27 -3.32 0
   children [
@@ -68,7 +95,22 @@ Pole {
 Khepera4 {
   translation -2.51023 2.49554 -0.000160525
   rotation -2.87848e-10 2.86974e-10 1 -1.5696553071795858
-  controller "my_controller"
+  controller "test"
+  turretSlot [
+    Lidar {
+      translation 0.07 0 0.06
+      horizontalResolution 360
+      numberOfLayers 1
+      maxRange 0.4
+    }
+    InertialUnit {
+    }
+    GPS {
+    }
+    DEF BASE Khepera3_Gripper {
+      translation -0.01 0 0.064
+    }
+  ]
 }
 Pole {
   translation 3.22 3.3 0
