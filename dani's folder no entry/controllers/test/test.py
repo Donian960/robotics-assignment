@@ -3,6 +3,7 @@ from controller import Robot
 import time
 import json
 import statistics
+import numpy as np
 ## Defining Map
 
 # this is a dictionary containing the map data
@@ -136,6 +137,25 @@ left_wheel_sensor.enable(timestep)
 right_wheel_sensor = robot.getDevice("right wheel sensor")
 right_wheel_sensor.enable(timestep)
 
+# --- Manipulation Devices (for pickup/place) ---
+try:
+    # Gripper motors
+    arm_motor = robot.getDevice("horizontal_motor")
+    finger_motor = robot.getDevice("finger_motor::left")
+    arm_motor.setVelocity(2.0)
+    finger_motor.setVelocity(2.0)
+    
+    # Lidar for distance detection
+    lidar = robot.getDevice("lidar")
+    lidar.enable(timestep)
+    lidar.enablePointCloud()
+    
+    HAS_MANIPULATOR = True
+    print(f"[{robot.getName()}] Manipulator devices found and enabled")
+except:
+    HAS_MANIPULATOR = False
+    print(f"[{robot.getName()}] No manipulator devices - pickup/place disabled")
+
 cam_width = camera.getWidth()
 cam_height = camera.getHeight()
 
@@ -264,10 +284,259 @@ def wait_for_supervisor_config():
                 
     return [0, 0], 90 # Fallback (should not happen)
     
+
+# ==================== MANIPULATION FUNCTIONS ====================
+
+def reset_gripper():
+    """Reset gripper to default position"""
+    if not HAS_MANIPULATOR:
+        return
+    arm_motor.setPosition(0.0)
+    finger_motor.setPosition(0.0)
+
+def get_lidar_distance():
+    """Get closest object distance from LIDAR"""
+    if not HAS_MANIPULATOR:
+        return None
+    ranges = lidar.getRangeImage()
+    if not ranges:
+        return None
+    return float(min(ranges))
+
+def get_camera_offset():
+    """Find horizontal offset of red object in camera view"""
+    if not HAS_MANIPULATOR:
+        return None
+    
+    import numpy as np
+    
+    img = camera.getImage()
+    if img is None:
+        return None
+    
+    cam_width = camera.getWidth()
+    cam_height = camera.getHeight()
+    
+    arr = np.frombuffer(img, np.uint8).reshape((cam_height, cam_width, 4))
+    bgr = arr[:, :, :3]
+    
+    # Target red object: BGR = [0, 0, 255]
+    TARGET_COLOR_BGR = np.array([0, 0, 255])
+    COLOR_TOLERANCE = 85
+    MIN_OBJECT_AREA = 30
+    
+    diff = np.abs(bgr.astype(int) - TARGET_COLOR_BGR)
+    mask = np.all(diff < COLOR_TOLERANCE, axis=2)
+    
+    ys, xs = np.where(mask)
+    if xs.size < MIN_OBJECT_AREA:
+        return None
+    
+    cx = np.mean(xs)
+    offset = -(cx - cam_width/2) / (cam_width/2)
+    return offset
+
+def scan_for_object():
+    """Scan environment to find red object"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Scanning for object...")
+    
+    # Check forward
+    for _ in range(10):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            print("Object seen forward")
+            return True
+    
+    # Spin left
+    left_wheel_motor.setVelocity(1.5)
+    right_wheel_motor.setVelocity(-1.5)
+    for _ in range(40):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            print("Object seen left")
+            return True
+    
+    # Spin right
+    left_wheel_motor.setVelocity(-1.5)
+    right_wheel_motor.setVelocity(1.5)
+    for _ in range(80):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            print("Object seen right")
+            return True
+    
+    left_wheel_motor.setVelocity(0)
+    right_wheel_motor.setVelocity(0)
+    print("Object NOT found")
+    return False
+
+def center_object():
+    """Center object using camera"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Centering object...")
+    ALIGN_TOLERANCE = 0.05
+    
+    for _ in range(100):
+        if robot.step(timestep) == -1:
+            return False
+        
+        offset = get_camera_offset()
+        if offset is None:
+            print("Lost object while centering!")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return False
+        
+        if abs(offset) < ALIGN_TOLERANCE:
+            print("Object centered")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return True
+        
+        # Rotate to center
+        speed = 2.0 if offset > 0 else -2.0
+        left_wheel_motor.setVelocity(-speed)
+        right_wheel_motor.setVelocity(speed)
+    
+    return False
+
+def align_distance():
+    """Align to pickup distance using LIDAR"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Aligning distance...")
+    TARGET_DIST = 0.12
+    TOLERANCE = 0.01
+    
+    for _ in range(200):
+        if robot.step(timestep) == -1:
+            return False
+        
+        if get_camera_offset() is None:
+            print("Lost object during distance alignment!")
+            return False
+        
+        dist = get_lidar_distance()
+        if dist is None:
+            continue
+        
+        error = dist - TARGET_DIST
+        
+        if abs(error) < TOLERANCE:
+            print("Distance aligned!")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return True
+        
+        speed = max(min(error * 12.0, 3.0), -3.0)
+        left_wheel_motor.setVelocity(speed)
+        right_wheel_motor.setVelocity(speed)
+    
+    print("Distance alignment timeout")
+    return False
+
+def execute_pickup():
+    """Complete pickup sequence"""
+    if not HAS_MANIPULATOR:
+        print("Cannot pickup - no manipulator")
+        return False
+    
+    print("\n=== STARTING PICKUP ===")
+    
+    if not scan_for_object():
+        return False
+    if not center_object():
+        return False
+    if not align_distance():
+        return False
+    
+    print("Executing gripper sequence...")
+    
+    # Open fingers
+    finger_motor.setPosition(0.0)
+    for _ in range(int(0.4 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Extend arm
+    arm_motor.setPosition(-3.0)
+    for _ in range(int(1.5 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Close fingers
+    finger_motor.setPosition(0.42)
+    for _ in range(int(1.0 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Lift arm
+    arm_motor.setPosition(0.0)
+    for _ in range(int(1.5 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    print("PICKUP COMPLETE\n")
+    return True
+
+def execute_place():
+    """Complete place sequence"""
+    if not HAS_MANIPULATOR:
+        print("Cannot place - no manipulator")
+        return False
+    
+    print("\n=== STARTING PLACE ===")
+    
+    # Lower arm
+    arm_motor.setPosition(-3.0)
+    for _ in range(int(1.2 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Open fingers
+    finger_motor.setPosition(0.0)
+    for _ in range(int(0.8 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Lift arm
+    arm_motor.setPosition(0.0)
+    for _ in range(int(1.0 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Back away
+    left_wheel_motor.setVelocity(-3.0)
+    right_wheel_motor.setVelocity(-3.0)
+    for _ in range(int(0.8 * 1000 / timestep)):
+        robot.step(timestep)
+    left_wheel_motor.setVelocity(0)
+    right_wheel_motor.setVelocity(0)
+    
+    print("PLACE COMPLETE\n")
+    return True
+
+# ==================== END MANIPULATION FUNCTIONS ====================
+
+#Helper Function
+def fmt_key(k):
+    """Standardizes keys to 'x,y' string format"""
+    if isinstance(k, str):
+        return k.replace("[", "").replace("]", "").replace(" ", "")
+    if isinstance(k, (list, tuple)):
+        return f"{int(k[0])},{int(k[1])}"
+    return str(k)
+
 ## Main ##
 current_location = [0, 0] 
 current_direction = 90
-def follow_instructions(instructions,start_loc, start_dir):
+def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node):
     location = start_loc
     direction = start_dir
     state = "TURN"
@@ -476,6 +745,23 @@ def follow_instructions(instructions,start_loc, start_dir):
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
+    
+                # --- CHECK FOR PICKUP/PLACE OPERATIONS ---
+                current_node_key = f"{int(location[0])},{int(location[1])}"
+    
+                # Execute pickup if at pickup node
+                if pickup_node and current_node_key == fmt_key(pickup_node):
+                    print(f"[{robot.getName()}] Arrived at PICKUP node {current_node_key}")
+                    if execute_pickup():
+                        send_status_update(robot.getName(), location, direction, "picked_up")
+                    pickup_node = None  # Mark as completed
+    
+                # Execute place if at drop node
+                elif drop_node and current_node_key == fmt_key(drop_node):
+                    print(f"[{robot.getName()}] Arrived at DROP node {current_node_key}")
+                    if execute_place():
+                        send_status_update(robot.getName(), location, direction, "delivered")
+                    drop_node = None  # Mark as completed
             
             ahead = get_position(300) # checks what is coming up
             position = get_position() # checks where it currently is
@@ -582,10 +868,15 @@ while robot.step(timestep) != -1:
                 instructions = data.get("instructions")
                 location = data.get("location")
                 current_location=location
+                pickup_node=None
+                drop_node=None
+                if(data.get("task_id")!="CHARGE_REQ"):
+                    pickup_node=data.get("pickup_node")
+                    drop_node=data.get("drop_node")
                 #print("start following",instructions,current_location,current_direction)
                 if (instructions!="S"):
                     current_location, current_direction = follow_instructions(
-                        instructions, current_location, current_direction
+                        instructions, current_location, current_direction,pickup_node,drop_node
                     )
                 #print("following_complete")
             else:

@@ -5,12 +5,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera4/protos/Khepera4.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/Pole.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera3/protos/Khepera3_Gripper.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.556396263953857 0.5455649020403845 -0.626723332196796 2.039528109356961
-  position -2.066328445705303 3.06289746736828 22.288783279386415
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 9.766712956177609e-05 2.0743000288226563e-05 14.225964389865076
 }
 TexturedBackground {
 }
@@ -41,6 +42,32 @@ RectangleArena {
     }
   }
 }
+Solid {
+  translation -1.25 0.45 0.04
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.5
+        metalness 0
+      }
+      geometry Cylinder {
+        height 0.08
+        radius 0.013
+      }
+    }
+  ]
+  boundingObject Shape {
+    appearance PBRAppearance {
+    }
+    geometry Cylinder {
+      height 0.1
+      radius 0.05
+    }
+  }
+  physics Physics {
+  }
+}
 Robot {
   translation 3.27 -3.32 0
   children [
@@ -68,7 +95,22 @@ Pole {
 Khepera4 {
   translation -2.51022 2.48554 -0.000160525
   rotation -2.87848e-10 2.86974e-10 1 -1.5696553071795858
-  controller "my_controller"
+  controller "test"
+  turretSlot [
+    Lidar {
+      translation 0.07 0 0.06
+      horizontalResolution 360
+      numberOfLayers 1
+      maxRange 0.4
+    }
+    InertialUnit {
+    }
+    GPS {
+    }
+    DEF BASE Khepera3_Gripper {
+      translation -0.01 0 0.064
+    }
+  ]
 }
 Pole {
   translation 3.22 3.3 0
