@@ -2,7 +2,7 @@ from controller import Robot
 
 import time
 import json
-import statistics
+import math
 ## Defining Map
 
 # this is a dictionary containing the map data
@@ -351,9 +351,6 @@ def follow_instructions(instructions,start_loc, start_dir):
                 if front_us_sensor_value < 0.4: #Corresponds to approximately 0.3 metres
                     state = "AVOIDING"
                     avoidance_state = "incoming"
-                    front_ir_samples = []
-                    front_right_ir_samples = []
-                    right_ir_samples = []
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
@@ -437,35 +434,37 @@ def follow_instructions(instructions,start_loc, start_dir):
                             send_status_update(robot.getName(), location, direction, "moving")
 
             if state == "AVOIDING": # If avoiding, veer right
-
-                if avoidance_state == "incoming":
-                    #left_wheel_motor.setVelocity(0)
-                    #right_wheel_motor.setVelocity(0)
-                    
-                    avoidance_state = "turning"
                 
+                if avoidance_state == "incoming": 
+                    if front_us_sensor_value < 0.35:
+                        avoidance_state = "turning"
+
                 elif avoidance_state == "turning":
-                    turn_factor = -2
-                    left_wheel_motor.setVelocity(5-(turn_factor))
-                    right_wheel_motor.setVelocity(5+(turn_factor))
+                    turn_factor = 5
+                    left_wheel_motor.setVelocity(5+turn_factor)
+                    right_wheel_motor.setVelocity(5-turn_factor)
                     
                     if front_left_us_sensor_value < 1:
                         left_wheel_motor.setVelocity(0)
                         right_wheel_motor.setVelocity(0)
-                        avoidance_state = "avoided"
+                        avoidance_state = "circle"
                 
-                elif avoidance_state == "avoided":
-                #turn based off distance
+                elif avoidance_state == "circle":
+                    max_passing_distance = 0.5
+                    min_passing_distance = 0.25
+                    desired_distance_delta = max(front_left_us_sensor_value-max_passing_distance, 0)-min_passing_distance
                     
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2)/2)
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2)/2)
+                    left_wheel_motor.setVelocity(5-desired_distance_delta)
+                    right_wheel_motor.setVelocity(5+desired_distance_delta)
+                    
                     if left_us_sensor_value < 1:
                         avoidance_state = "passed"
                 
                 if avoidance_state == "passed":
                     
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2))
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2))
+                    left_wheel_motor.setVelocity(5)
+                    right_wheel_motor.setVelocity(5)
+                    
                     if left_us_sensor_value > 1.8:
                         left_wheel_motor.setVelocity(0)
                         right_wheel_motor.setVelocity(0)

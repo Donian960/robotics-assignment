@@ -9,8 +9,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.556396263953857 0.5455649020403845 -0.626723332196796 2.039528109356961
-  position -2.066328445705303 3.06289746736828 22.288783279386415
+  orientation 0.5810485365929755 0.5584507847204342 -0.5920433423055215 2.1069337509704757
+  position -0.6008850099381899 0.1142429484211761 11.733028681130364
 }
 TexturedBackground {
 }
@@ -66,7 +66,7 @@ Pole {
   name "client pole"
 }
 Khepera4 {
-  translation -2.51022 2.48554 -0.000160525
+  translation -2.51023 2.49554 -0.000160525
   rotation -2.87848e-10 2.86974e-10 1 -1.5696553071795858
   controller "my_controller"
 }
@@ -95,8 +95,8 @@ Robot {
   supervisor TRUE
 }
 Khepera4 {
-  translation 2.5 0.6 0
-  rotation 0 0 1 -1.5708
+  translation 2.5 0.62 0
+  rotation 0 0 1 -1.5707953071795862
   name "Khepera IV-1"
   controller "my_controller"
 }
