@@ -540,7 +540,9 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     location = start_loc
     direction = start_dir
     state = "TURN"
+    potential_collision = False
     avoidance_state = "none"
+    ir_sensor_samples = []
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
@@ -590,6 +592,13 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
         front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
         left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
+        #list of values for moving median
+        front_ir_sensor_value = infrared_sensors["front infrared sensor"].getValue()
+        ir_sensor_samples.append(front_ir_sensor_value)
+        if len(ir_sensor_samples) > 10:
+            ir_sensor_samples.pop(0)
+        ir_sensor_avg = statistics.mean(ir_sensor_samples)
+        
         if len(instructions) > 0 and current_instruction < len(instructions):
         
             if state == "FOLLOW": # if it is currently following a line
@@ -600,7 +609,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                 # speeds are set based on what side of the line it is on, as well as how far off the line it is
                 
-                if dif >= 0.15:
+                if dif >= 0.15 or potential_collision:
                 
                     # slower speeds are used the further off-line it is so it can readjust easier
             
@@ -616,16 +625,19 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                     left_wheel_motor.setVelocity(20 + (dif / 2))
                     right_wheel_motor.setVelocity(20 - (dif / 2))
-                
-                if front_us_sensor_value < 0.4: #Corresponds to approximately 0.3 metres
-                    state = "AVOIDING"
-                    avoidance_state = "incoming"
-                    front_ir_samples = []
-                    front_right_ir_samples = []
-                    right_ir_samples = []
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
+                
+                if front_us_sensor_value < 0.5: #Potential obstacle
+                    print("POTENTIAL")
+                    potential_collision = True
+                else:
+                    potential_collision = False
+                
+                print(f"{ir_sensor_avg}   -    {front_ir_sensor_value}")
+                if ir_sensor_avg > 150:
+                    state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
             
@@ -706,7 +718,10 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             send_status_update(robot.getName(), location, direction, "moving")
 
             if state == "AVOIDING": # If avoiding, veer right
-
+                print("AVOIDING")
+                left_wheel_motor.setVelocity(0)
+                right_wheel_motor.setVelocity(0)
+                """
                 if avoidance_state == "incoming":
                     #left_wheel_motor.setVelocity(0)
                     #right_wheel_motor.setVelocity(0)
@@ -740,7 +755,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                         right_wheel_motor.setVelocity(0)
                         state = "FOLLOW"
 
-               
+               """
             
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
