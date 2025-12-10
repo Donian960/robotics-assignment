@@ -226,6 +226,7 @@ def send_status_update(robot_id, loc, orient, state="busy_loaded"):
         "timestamp": time.time()
     }
     emitter.send(json.dumps(msg).encode("utf-8"))
+    print(f"[{robot_id}] SENT STATUS: state='{state}'")
     
 def trace(location, direction, turn): 
     # 1. Update Direction
@@ -540,7 +541,8 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     location = start_loc
     direction = start_dir
     state = "TURN"
-    avoidance_state = "none"
+    avoidance_state = "none" # This will no longer be used
+
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
@@ -580,17 +582,28 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
+
+    start_time = time.time()
+    last_sent_node = None
+    previous_lookahead = get_position(300)
+    
+    # us_sensor_enabled variable removed
+    # US sensor is always enabled for debugging, but avoidance logic is removed
+    # to avoid the robot entering the AVOIDING state.
+    # The US sensor device acquisition/enabling remains in the Initialisation block.
+
     while robot.step(timestep) != -1:
        
         current_lookahead = get_position(300)
         
-        #### Distance sensor readings for collision avoidance          
-        #Get long distance us reading
-        front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
-        front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
-        left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
+        #### Distance sensor readings for collision avoidance - READINGS LEFT FOR DEBUGGING, BUT NOT USED          
+        # front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
+        # front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
+        # left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
         if len(instructions) > 0 and current_instruction < len(instructions):
+
+            # US sensor disabling logic removed
         
             if state == "FOLLOW": # if it is currently following a line
             
@@ -616,13 +629,9 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                     left_wheel_motor.setVelocity(20 + (dif / 2))
                     right_wheel_motor.setVelocity(20 - (dif / 2))
-                
-                if front_us_sensor_value < 0.4: #Corresponds to approximately 0.3 metres
-                    state = "AVOIDING"
-                    avoidance_state = "incoming"
-                    front_ir_samples = []
-                    front_right_ir_samples = []
-                    right_ir_samples = []
+            
+
+                # Avoidance state transition logic removed (if us_sensor_enabled and front_us_sensor_value < 0.35)
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
@@ -705,68 +714,15 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             location, direction = trace(location, direction, ci)
                             send_status_update(robot.getName(), location, direction, "moving")
 
-            if state == "AVOIDING": # If avoiding, veer right
-
-                if avoidance_state == "incoming":
-                    #left_wheel_motor.setVelocity(0)
-                    #right_wheel_motor.setVelocity(0)
-                    
-                    avoidance_state = "turning"
-                
-                elif avoidance_state == "turning":
-                    turn_factor = -2
-                    left_wheel_motor.setVelocity(5-(turn_factor))
-                    right_wheel_motor.setVelocity(5+(turn_factor))
-                    
-                    if front_left_us_sensor_value < 1:
-                        left_wheel_motor.setVelocity(0)
-                        right_wheel_motor.setVelocity(0)
-                        avoidance_state = "avoided"
-                
-                elif avoidance_state == "avoided":
-                #turn based off distance
-                    
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2)/2)
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2)/2)
-                    if left_us_sensor_value < 1:
-                        avoidance_state = "passed"
-                
-                if avoidance_state == "passed":
-                    
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2))
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2))
-                    if left_us_sensor_value > 1.8:
-                        left_wheel_motor.setVelocity(0)
-                        right_wheel_motor.setVelocity(0)
-                        state = "FOLLOW"
-
-               
             
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
-    
-                # --- CHECK FOR PICKUP/PLACE OPERATIONS ---
-                current_node_key = f"{int(location[0])},{int(location[1])}"
-    
-                # Execute pickup if at pickup node
-                if pickup_node and current_node_key == fmt_key(pickup_node):
-                    print(f"[{robot.getName()}] Arrived at PICKUP node {current_node_key}")
-                    if execute_pickup():
-                        send_status_update(robot.getName(), location, direction, "picked_up")
-                    pickup_node = None  # Mark as completed
-    
-                # Execute place if at drop node
-                elif drop_node and current_node_key == fmt_key(drop_node):
-                    print(f"[{robot.getName()}] Arrived at DROP node {current_node_key}")
-                    if execute_place():
-                        send_status_update(robot.getName(), location, direction, "delivered")
-                    drop_node = None  # Mark as completed
             
             ahead = get_position(300) # checks what is coming up
             position = get_position() # checks where it currently is
             
-        else: # if there are no more instructions
+        else:
             left_wheel_motor.setVelocity(0)
             right_wheel_motor.setVelocity(0)
             
@@ -774,15 +730,25 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
             # Force IDLE if instructions are done
             state = "IDLE" 
 
+            current_node_key = f"{int(location[0])},{int(location[1])}"
+
+            if pickup_node and current_node_key == fmt_key(pickup_node):
+                print(f"[{robot.getName()}] Arrived at PICKUP node {current_node_key}")
+                if execute_pickup():
+                    send_status_update(robot.getName(), location, direction, "picked_up")
+                    # CRITICAL FIX: Return immediately to prevent sending "idle"
+                    print(f"[{robot.getName()}] Pickup complete. EXITING follow_instructions to wait for new assignment.")
+                    return location, direction
+            
+            elif drop_node and current_node_key == fmt_key(drop_node):
+                print(f"[{robot.getName()}] Arrived at DROP node {current_node_key}")
+                if execute_place():
+                    send_status_update(robot.getName(), location, direction, "delivered")
+
             if spot in ("red", "green", "blue") or state == "IDLE":
                 node_key = f"{int(location[0])},{int(location[1])}"
-                
-                # FIX: Add 'or state == "IDLE"' to bypass the duplicate check
-                # We ALWAYS want to tell the server when we stop.
                 if node_key != last_sent_node or state == "IDLE":
-                    
                     send_status_update(robot.getName(), location, direction, "idle")
-                    
                     last_sent_node = node_key
             
             return location, direction
@@ -890,7 +856,7 @@ while robot.step(timestep) != -1:
         if int(time.time() * 10) % 20 == 0:  # Rough 2-second interval
             status_msg = {
                 "type": "status",
-                "reason":"still charing",
+                "reason":"still charging",
                 "robot_id": robot.getName(),
                 "location": current_location,
                 "orientation": current_direction,
