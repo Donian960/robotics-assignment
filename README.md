@@ -35,12 +35,13 @@ Per assignment guidelines, the following outlines what was **self-implemented** 
 - **Robot Finite State Machine (FSM)**  
   States: `IDLE`, `BUSY`, `MOVING_TO_CHARGE`, `CHARGING`.
 
-
+- **Line Following Algorithm**
+  Uses the robot's camera in combination with a state system consisting of `IDLE`, `FOLLOW`, `TURN`, and `STOPPING` to control the speed of the motors.
 
 ### 2. Pre-Programmed Packages & Libraries
 
 - **Webots Khepera IV Model**  
-  Used the standard Cyberbotics robot and motor API (`setVelocity()`).
+  Used the standard Cyberbotics robot and motor API (e.g. `setVelocity()`).
 
 - **NetworkX**  
   Used as a graph structure and for `dijkstra_path_length`.  
