@@ -596,26 +596,28 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
-    
-    if (robot.name == "Henry" or robot.name == "Norman"):
-        instructions = "FFFFF"
-        state = "FOLLOW"
 
     while robot.step(timestep) != -1:
 
         current_lookahead = get_position(300)
         
-        #### Distance sensor readings for collision avoidance - READINGS LEFT FOR DEBUGGING, BUT NOT USED          
+        ### Record values from distance sensors
+        
+        # Ultrasonic sensor used for longer distance obstacle detection (25cm - 2m)
+        # The noise on this sensor is lower and the accuracy less vital, so no noise reduction is performed    
         front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
         
-        #Add new IR readings to sample lists, remove oldest, then take the mean to denoise
+        # Infrared sensors used for close range obstacle detection (0cm - 20cm)
+        # These sensors are much noisier, and we require the values ot be fairly accurate, so
+        # the moving mean of ten values is calculated.
         for sensor in ["front infrared sensor","front left infrared sensor", "left infrared sensor"]:
             value = infrared_sensors[sensor].getValue()
             infrared_sensor_samples[sensor].append(value)
             if len(infrared_sensor_samples[sensor]) > denoising_sample_size:
                 infrared_sensor_samples[sensor].pop(0)
             infrared_sensor_averages[sensor] = statistics.mean(infrared_sensor_samples[sensor])
-
+        
+        ### Robot state machine 
         if len(instructions) > 0 and current_instruction < len(instructions):
             # US sensor disabling logic removed
         
@@ -627,7 +629,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                 #if there may be a collision, go very slow so both robots can stop in time
                 if  potential_collision:
-                    print(f"{robot.name} : Potential Collision!")
                     left_wheel_motor.setVelocity(5 + (dif / 2))
                     right_wheel_motor.setVelocity(5 - (dif / 2))
                 
@@ -740,28 +741,44 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             location, direction = trace(location, direction, ci)
                             send_status_update(robot.getName(), location, direction, "moving")
 
-            if state == "AVOIDING": # If avoiding, veer right                
+            if state == "AVOIDING":
+                
+                # Initalise a new odometry object for each new 'avoidance event'
+                # The odometry object starts calculating local coordinates relative to the robots position
+                # when it started avoiding.
+                # Due to the short life span of each instance of odometry, compund errors are
+                # less of a concern.            
                 if od == None:
                     od = Odometry(0, 0, 0, left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
                 od.step(left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
                 
-                #If something is directly in front, turn until it is no longer
+                # If the robot is within ~6cm of an object, it should reverse to make room to maneuvre
                 if infrared_sensor_averages["front infrared sensor"] > 400:
                     left_wheel_motor.setVelocity(-5)
                     right_wheel_motor.setVelocity(-5)
                 
+                # If the robot is within ~19cm, start turning away
                 elif infrared_sensor_averages["front infrared sensor"] > 130:
                     left_wheel_motor.setVelocity(5)
                     right_wheel_motor.setVelocity(-5)
                 
+                # If robot is facing an open path, start moving forward, 
+                # veering away from anything too close to the front left sensor.
                 elif infrared_sensor_averages["front left infrared sensor"] > 130:
                     front_left_sensor = infrared_sensor_averages["front left infrared sensor"]/100
                     left_wheel_motor.setVelocity(5 + front_left_sensor)
                     right_wheel_motor.setVelocity(5 - front_left_sensor)
                     away_from_line = True
                 
+                #The robot is near nothing as far as we can tell, return to line
                 else:
+                    # If the odometry y coordinate is ~0, the robot is (in theory) back on the line.
+                    # Start trying to find it.
+                    # Note: The odometry y coordinate refers to an axis parallel to the line and direction of initial movement
                     if away_from_line and abs(od.y) < 0.01:
+                        # If the robot sees the line and is facing the same way it started, it should return to follow mode.
+                        # Else, spin in place till this is true
+                        # Note: The local odometry always considers the initial heading to be 0 radians
                         if ahead != "white" and od.theta < 0.1:
                             state = "FOLLOW"
                             od = None
@@ -769,7 +786,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                         else:
                             left_wheel_motor.setVelocity(5)
                             right_wheel_motor.setVelocity(-5)
-                    
+                    # Else, drive left to try and return to line
                     else:
                         left_wheel_motor.setVelocity(5 - 2)
                         right_wheel_motor.setVelocity(5 + 2)
