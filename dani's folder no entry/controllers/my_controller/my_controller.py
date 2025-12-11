@@ -1,4 +1,5 @@
 from controller import Robot
+from odometry import Odometry
 
 import time
 import json
@@ -546,9 +547,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     location = start_loc
     direction = start_dir
     state = "TURN"
-    potential_collision = False
-    denoising_sample_size = 10
-    avoidance_state = "none"
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
@@ -569,6 +567,12 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     
     turns = 0
     # used in the "TURN" state
+    
+    potential_collision = False
+    denoising_sample_size = 10
+    od = None
+    away_from_line = False
+    # used in "AVOIDING" state
     
     robot.step(timestep)
     ahead = get_position(300)
@@ -592,11 +596,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
-    
-    # us_sensor_enabled variable removed
-    # US sensor is always enabled for debugging, but avoidance logic is removed
-    # to avoid the robot entering the AVOIDING state.
-    # The US sensor device acquisition/enabling remains in the Initialisation block.
 
     while robot.step(timestep) != -1:
        
@@ -736,10 +735,11 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             send_status_update(robot.getName(), location, direction, "moving")
 
             if state == "AVOIDING": # If avoiding, veer right
-                print(f"[{robot.name}] AVOIDING")
-
-                
+                if od == None:
+                    od = Odometry(0, 0, 0, left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
+                od.step(left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
                 #If something is directly in front, turn until it is no longer
+                print(f"X: {od.x}, Y:{od.y}")
                 if infrared_sensor_averages["front infrared sensor"] > 130:
                     left_wheel_motor.setVelocity(5)
                     right_wheel_motor.setVelocity(-5)
@@ -748,13 +748,21 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     front_left_sensor = infrared_sensor_averages["front left infrared sensor"]/100
                     left_wheel_motor.setVelocity(5 + front_left_sensor)
                     right_wheel_motor.setVelocity(5 - front_left_sensor)
+                    away_from_line = True
                 
                 else:
-                    left_wheel_motor.setVelocity(5 - 2)
-                    right_wheel_motor.setVelocity(5 + 2)
+                    if away_from_line and abs(od.y) < 0.01:
+                        if ahead == "black":
+                            state = "FOLLOW"
+                            od = None
+                            away_from_line = False
+                        else:
+                            left_wheel_motor.setVelocity(5)
+                            right_wheel_motor.setVelocity(-5)
                     
-                    if (ahead) == "black":
-                        state = "FOLLOW"
+                    else:
+                        left_wheel_motor.setVelocity(5 - 2)
+                        right_wheel_motor.setVelocity(5 + 2)
                 
 
                 """
