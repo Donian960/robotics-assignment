@@ -48,7 +48,7 @@ Per assignment guidelines, the following outlines what was **self-implemented** 
   *Only for shortest path calculation*
 
 - **Python Standard Library**  
-  `json`, `math`, `itertools`, `collections`.
+  `time`, `json`, `math`, `statistics`, `re`, `heapq`, `dataclasses`, `typing`.
 
 
 
