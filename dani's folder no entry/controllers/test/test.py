@@ -546,14 +546,9 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     location = start_loc
     direction = start_dir
     state = "TURN"
-<<<<<<< HEAD
     potential_collision = False
     denoising_sample_size = 10
     avoidance_state = "none"
-=======
-    avoidance_state = "none" # This will no longer be used
-
->>>>>>> 4e888944bca6ceaea0feeca084e5d373b87f91d6
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
@@ -648,12 +643,9 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                     left_wheel_motor.setVelocity(20 + (dif / 2))
                     right_wheel_motor.setVelocity(20 - (dif / 2))
-<<<<<<< HEAD
-=======
             
 
                 # Avoidance state transition logic removed (if us_sensor_enabled and front_us_sensor_value < 0.35)
->>>>>>> 4e888944bca6ceaea0feeca084e5d373b87f91d6
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
@@ -745,7 +737,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             location, direction = trace(location, direction, ci)
                             send_status_update(robot.getName(), location, direction, "moving")
 
-<<<<<<< HEAD
             if state == "AVOIDING": # If avoiding, veer right
                 print("AVOIDING")
                 left_wheel_motor.setVelocity(0)
@@ -790,9 +781,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                         state = "FOLLOW"
 
                """
-=======
->>>>>>> 4e888944bca6ceaea0feeca084e5d373b87f91d6
-            
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
