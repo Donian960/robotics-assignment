@@ -660,7 +660,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 else:
                     potential_collision = False
                 
-                if infrared_sensor_averages["front infrared sensor"] > 150:
+                if max([infrared_sensor_averages["front infrared sensor"],infrared_sensor_averages["front left infrared sensor"]]) > 150:
                     state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
