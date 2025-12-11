@@ -557,6 +557,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     ## "TURN" - changing direction at a spot
     ## "STOPPING" - transition from FOLLOW to TURN
     ## "AVOIDING" - avoiding an oncoming robot
+    ## "BLOCKED INTERSECTION" - waiting for an intersection to become free
     ## "IDLE" - unmoving
     
     #instructions = "FLLRRFFFLRRS"
@@ -578,6 +579,9 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     od = None
     away_from_line = False
     # used in "AVOIDING" state
+    
+    backed_off = False
+    # used in "BLOCKED INTERSECTION" state
     
     robot.step(timestep)
     ahead = get_position(300)
@@ -665,8 +669,8 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     potential_collision = False
                 
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
-                    if infrared_sensor_averages["front infrared sensor"] > 135:
-                        print(str(infrared_sensor_averages["front infrared sensor"]))
+                    if infrared_sensor_averages["front infrared sensor"] > 140:
+                        backed_off = False
                         state = "BLOCKED INTERSECTION"
                     else:
                         state = "STOPPING"
@@ -800,17 +804,18 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     # Else, drive left to try and return to line
                     else:
                         left_wheel_motor.setVelocity(5 - 2)
-                        right_wheel_motor.setVelocity(5 + 2)
-            
+                        right_wheel_motor.setVelocity(5 + 2)  
+                print(f"{state}: FS {infrared_sensor_averages['front infrared sensor']}")
             if state == "BLOCKED INTERSECTION":
-                if infrared_sensor_averages["front infrared sensor"] > 150:
+                if infrared_sensor_averages["front infrared sensor"] > 180 and backed_off == False:
                     left_wheel_motor.setVelocity(-5)
                     right_wheel_motor.setVelocity(-5)
-                elif infrared_sensor_averages["front infrared sensor"] < 130:
-                    state = "FOLLOW"
+                elif infrared_sensor_averages["front infrared sensor"] < 170:
+                    backed_off = True
                     left_wheel_motor.setVelocity(0)
                     right_wheel_motor.setVelocity(0)
-                else:
+                if infrared_sensor_averages["front infrared sensor"] < 130:
+                    state = "FOLLOW"
                     left_wheel_motor.setVelocity(0)
                     right_wheel_motor.setVelocity(0)
 
