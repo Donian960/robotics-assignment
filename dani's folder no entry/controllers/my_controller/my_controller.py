@@ -667,16 +667,11 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     if infrared_sensor_averages["front infrared sensor"] > 130:
                         state = "BLOCKED INTERSECTION"
-                        #left_wheel_motor.setVelocity(0)
-                        #right_wheel_motor.setVelocity(0)
                     else:
                         state = "STOPPING"
                 elif max([infrared_sensor_averages["front infrared sensor"],infrared_sensor_averages["front left infrared sensor"]]) > 200:
                     state = "AVOIDING"
                 
-
-            if robot.name == "Henry":
-                print(f"{state}: {ahead} {infrared_sensor_averages['front infrared sensor']}") 
             if state == "STOPPING": # if the robot is stopping at an intersection
                 
                 if instructions[current_instruction] != "F": # if the robot is not currently stopping
@@ -810,7 +805,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     left_wheel_motor.setVelocity(-5)
                     right_wheel_motor.setVelocity(-5)
                 elif infrared_sensor_averages["front infrared sensor"] < 130:
-                    state == "FOLLOW"
+                    state = "FOLLOW"
                     left_wheel_motor.setVelocity(0)
                     right_wheel_motor.setVelocity(0)
                 else:
