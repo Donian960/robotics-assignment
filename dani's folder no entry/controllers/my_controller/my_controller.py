@@ -601,7 +601,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
-
+    
     while robot.step(timestep) != -1:
 
         current_lookahead = get_position(300)
@@ -665,16 +665,18 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     potential_collision = False
                 
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
-                    if infrared_sensor_averages["front infrared sensor"] > 190:
-                        left_wheel_motor.setVelocity(0)
-                        right_wheel_motor.setVelocity(0)
+                    if infrared_sensor_averages["front infrared sensor"] > 130:
+                        state = "BLOCKED INTERSECTION"
+                        #left_wheel_motor.setVelocity(0)
+                        #right_wheel_motor.setVelocity(0)
                     else:
                         state = "STOPPING"
                 elif max([infrared_sensor_averages["front infrared sensor"],infrared_sensor_averages["front left infrared sensor"]]) > 200:
                     state = "AVOIDING"
                 
 
-                
+            if robot.name == "Henry":
+                print(f"{state}: {ahead} {infrared_sensor_averages['front infrared sensor']}") 
             if state == "STOPPING": # if the robot is stopping at an intersection
                 
                 if instructions[current_instruction] != "F": # if the robot is not currently stopping
@@ -802,6 +804,18 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     else:
                         left_wheel_motor.setVelocity(5 - 2)
                         right_wheel_motor.setVelocity(5 + 2)
+            
+            if state == "BLOCKED INTERSECTION":
+                if infrared_sensor_averages["front infrared sensor"] > 150:
+                    left_wheel_motor.setVelocity(-5)
+                    right_wheel_motor.setVelocity(-5)
+                elif infrared_sensor_averages["front infrared sensor"] < 130:
+                    state == "FOLLOW"
+                    left_wheel_motor.setVelocity(0)
+                    right_wheel_motor.setVelocity(0)
+                else:
+                    left_wheel_motor.setVelocity(0)
+                    right_wheel_motor.setVelocity(0)
 
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
