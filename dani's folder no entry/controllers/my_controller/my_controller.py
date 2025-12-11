@@ -162,6 +162,8 @@ except:
     HAS_MANIPULATOR = False
     print(f"[{robot.getName()}] No manipulator devices - pickup/place disabled")
 
+## Vision functions, for line following
+
 cam_width = camera.getWidth()
 cam_height = camera.getHeight()
 
@@ -221,7 +223,9 @@ def adjustment():
             r += camera.imageGetGray(img, cam_width, x, 400)
             
     return l, r
-    
+
+##Communication functions
+
 def send_status_update(robot_id, loc, orient, state="busy_loaded"):
     msg = {
         "type": "status",
@@ -543,6 +547,7 @@ def fmt_key(k):
 ## Main ##
 current_location = [0, 0] 
 current_direction = 90
+
 def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node):
     location = start_loc
     direction = start_dir
