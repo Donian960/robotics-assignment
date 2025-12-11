@@ -2,7 +2,8 @@ from controller import Robot
 
 import time
 import json
-import math
+import statistics
+import numpy as np
 ## Defining Map
 
 # this is a dictionary containing the map data
@@ -102,9 +103,14 @@ infrared_sensors_names = ["rear left infrared sensor",
                           "ground front right infrared sensor",
                           "ground right infrared sensor"]
 infrared_sensors = {}
+infrared_sensor_samples = {}
+infrared_sensor_averages = {}
 for index, name in enumerate(infrared_sensors_names):
     infrared_sensors[name] = robot.getDevice(name)
     infrared_sensors[name].enable(timestep)
+    
+    infrared_sensor_samples[name] = [0]
+    infrared_sensor_averages[name] = 0
   
 led_names = ["front left led",
              "front right led",
@@ -135,6 +141,25 @@ left_wheel_sensor.enable(timestep)
 
 right_wheel_sensor = robot.getDevice("right wheel sensor")
 right_wheel_sensor.enable(timestep)
+
+# --- Manipulation Devices (for pickup/place) ---
+try:
+    # Gripper motors
+    arm_motor = robot.getDevice("horizontal_motor")
+    finger_motor = robot.getDevice("finger_motor::left")
+    arm_motor.setVelocity(2.0)
+    finger_motor.setVelocity(2.0)
+    
+    # Lidar for distance detection
+    lidar = robot.getDevice("lidar")
+    lidar.enable(timestep)
+    lidar.enablePointCloud()
+    
+    HAS_MANIPULATOR = True
+    print(f"[{robot.getName()}] Manipulator devices found and enabled")
+except:
+    HAS_MANIPULATOR = False
+    print(f"[{robot.getName()}] No manipulator devices - pickup/place disabled")
 
 cam_width = camera.getWidth()
 cam_height = camera.getHeight()
@@ -206,6 +231,7 @@ def send_status_update(robot_id, loc, orient, state="busy_loaded"):
         "timestamp": time.time()
     }
     emitter.send(json.dumps(msg).encode("utf-8"))
+    print(f"[{robot_id}] SENT STATUS: state='{state}'")
     
 def trace(location, direction, turn): 
     # 1. Update Direction
@@ -264,13 +290,264 @@ def wait_for_supervisor_config():
                 
     return [0, 0], 90 # Fallback (should not happen)
     
+
+# ==================== MANIPULATION FUNCTIONS ====================
+
+def reset_gripper():
+    """Reset gripper to default position"""
+    if not HAS_MANIPULATOR:
+        return
+    arm_motor.setPosition(0.0)
+    finger_motor.setPosition(0.0)
+
+def get_lidar_distance():
+    """Get closest object distance from LIDAR"""
+    if not HAS_MANIPULATOR:
+        return None
+    ranges = lidar.getRangeImage()
+    if not ranges:
+        return None
+    return float(min(ranges))
+
+def get_camera_offset():
+    """Find horizontal offset of red object in camera view"""
+    if not HAS_MANIPULATOR:
+        return None
+    
+    import numpy as np
+    
+    img = camera.getImage()
+    if img is None:
+        return None
+    
+    cam_width = camera.getWidth()
+    cam_height = camera.getHeight()
+    
+    arr = np.frombuffer(img, np.uint8).reshape((cam_height, cam_width, 4))
+    bgr = arr[:, :, :3]
+    
+    # Target red object: BGR = [0, 0, 255]
+    TARGET_COLOR_BGR = np.array([0, 0, 255])
+    COLOR_TOLERANCE = 85
+    MIN_OBJECT_AREA = 30
+    
+    diff = np.abs(bgr.astype(int) - TARGET_COLOR_BGR)
+    mask = np.all(diff < COLOR_TOLERANCE, axis=2)
+    
+    ys, xs = np.where(mask)
+    if xs.size < MIN_OBJECT_AREA:
+        return None
+    
+    cx = np.mean(xs)
+    offset = -(cx - cam_width/2) / (cam_width/2)
+    return offset
+
+def scan_for_object():
+    """Scan environment to find red object"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Scanning for object...")
+    
+    # Check forward
+    for _ in range(10):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            print("Object seen forward")
+            return True
+    
+    # Spin left
+    left_wheel_motor.setVelocity(1.5)
+    right_wheel_motor.setVelocity(-1.5)
+    for _ in range(40):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            print("Object seen left")
+            return True
+    
+    # Spin right
+    left_wheel_motor.setVelocity(-1.5)
+    right_wheel_motor.setVelocity(1.5)
+    for _ in range(80):
+        if robot.step(timestep) == -1:
+            return False
+        if get_camera_offset() is not None:
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            print("Object seen right")
+            return True
+    
+    left_wheel_motor.setVelocity(0)
+    right_wheel_motor.setVelocity(0)
+    print("Object NOT found")
+    return False
+
+def center_object():
+    """Center object using camera"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Centering object...")
+    ALIGN_TOLERANCE = 0.05
+    
+    for _ in range(100):
+        if robot.step(timestep) == -1:
+            return False
+        
+        offset = get_camera_offset()
+        if offset is None:
+            print("Lost object while centering!")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return False
+        
+        if abs(offset) < ALIGN_TOLERANCE:
+            print("Object centered")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return True
+        
+        # Rotate to center
+        speed = 2.0 if offset > 0 else -2.0
+        left_wheel_motor.setVelocity(-speed)
+        right_wheel_motor.setVelocity(speed)
+    
+    return False
+
+def align_distance():
+    """Align to pickup distance using LIDAR"""
+    if not HAS_MANIPULATOR:
+        return False
+    
+    print("Aligning distance...")
+    TARGET_DIST = 0.12
+    TOLERANCE = 0.01
+    
+    for _ in range(200):
+        if robot.step(timestep) == -1:
+            return False
+        
+        if get_camera_offset() is None:
+            print("Lost object during distance alignment!")
+            return False
+        
+        dist = get_lidar_distance()
+        if dist is None:
+            continue
+        
+        error = dist - TARGET_DIST
+        
+        if abs(error) < TOLERANCE:
+            print("Distance aligned!")
+            left_wheel_motor.setVelocity(0)
+            right_wheel_motor.setVelocity(0)
+            return True
+        
+        speed = max(min(error * 12.0, 3.0), -3.0)
+        left_wheel_motor.setVelocity(speed)
+        right_wheel_motor.setVelocity(speed)
+    
+    print("Distance alignment timeout")
+    return False
+
+def execute_pickup():
+    """Complete pickup sequence"""
+    if not HAS_MANIPULATOR:
+        print("Cannot pickup - no manipulator")
+        return False
+    
+    print("\n=== STARTING PICKUP ===")
+    
+    if not scan_for_object():
+        return False
+    if not center_object():
+        return False
+    if not align_distance():
+        return False
+    
+    print("Executing gripper sequence...")
+    
+    # Open fingers
+    finger_motor.setPosition(0.0)
+    for _ in range(int(0.4 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Extend arm
+    arm_motor.setPosition(-3.0)
+    for _ in range(int(1.5 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Close fingers
+    finger_motor.setPosition(0.42)
+    for _ in range(int(1.0 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Lift arm
+    arm_motor.setPosition(0.0)
+    for _ in range(int(1.5 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    print("PICKUP COMPLETE\n")
+    return True
+
+def execute_place():
+    """Complete place sequence"""
+    if not HAS_MANIPULATOR:
+        print("Cannot place - no manipulator")
+        return False
+    
+    print("\n=== STARTING PLACE ===")
+    
+    # Lower arm
+    arm_motor.setPosition(-3.0)
+    for _ in range(int(1.2 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Open fingers
+    finger_motor.setPosition(0.0)
+    for _ in range(int(0.8 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Lift arm
+    arm_motor.setPosition(0.0)
+    for _ in range(int(1.0 * 1000 / timestep)):
+        robot.step(timestep)
+    
+    # Back away
+    left_wheel_motor.setVelocity(-3.0)
+    right_wheel_motor.setVelocity(-3.0)
+    for _ in range(int(0.8 * 1000 / timestep)):
+        robot.step(timestep)
+    left_wheel_motor.setVelocity(0)
+    right_wheel_motor.setVelocity(0)
+    
+    print("PLACE COMPLETE\n")
+    return True
+
+# ==================== END MANIPULATION FUNCTIONS ====================
+
+#Helper Function
+def fmt_key(k):
+    """Standardizes keys to 'x,y' string format"""
+    if isinstance(k, str):
+        return k.replace("[", "").replace("]", "").replace(" ", "")
+    if isinstance(k, (list, tuple)):
+        return f"{int(k[0])},{int(k[1])}"
+    return str(k)
+
 ## Main ##
 current_location = [0, 0] 
 current_direction = 90
-def follow_instructions(instructions,start_loc, start_dir):
+def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node):
     location = start_loc
     direction = start_dir
     state = "TURN"
+    potential_collision = False
+    denoising_sample_size = 10
     avoidance_state = "none"
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
@@ -311,22 +588,36 @@ def follow_instructions(instructions,start_loc, start_dir):
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
+
+    start_time = time.time()
+    last_sent_node = None
+    previous_lookahead = get_position(300)
+    
+    # us_sensor_enabled variable removed
+    # US sensor is always enabled for debugging, but avoidance logic is removed
+    # to avoid the robot entering the AVOIDING state.
+    # The US sensor device acquisition/enabling remains in the Initialisation block.
+
     while robot.step(timestep) != -1:
        
         current_lookahead = get_position(300)
         
-        #### Distance sensor readings for collision avoidance          
-        #Get long distance us reading
-        # front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
+        #### Distance sensor readings for collision avoidance - READINGS LEFT FOR DEBUGGING, BUT NOT USED          
+        front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
         # front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
         # left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
-        front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
-        front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
-        left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
-        
+        #Add new IR readings to sample lists, remove oldest, then take the mean to denoise
+        for sensor in ["front infrared sensor","front left infrared sensor", "left infrared sensor"]:
+            value = infrared_sensors[sensor].getValue()
+            infrared_sensor_samples[sensor].append(value)
+            if len(infrared_sensor_samples[sensor]) > denoising_sample_size:
+                infrared_sensor_samples[sensor].pop(0)
+            infrared_sensor_averages[sensor] = statistics.mean(infrared_sensor_samples[sensor])
         
         if len(instructions) > 0 and current_instruction < len(instructions):
+
+            # US sensor disabling logic removed
         
             if state == "FOLLOW": # if it is currently following a line
             
@@ -336,7 +627,7 @@ def follow_instructions(instructions,start_loc, start_dir):
                 
                 # speeds are set based on what side of the line it is on, as well as how far off the line it is
                 
-                if dif >= 0.15:
+                if dif >= 0.15 or potential_collision:
                 
                     # slower speeds are used the further off-line it is so it can readjust easier
             
@@ -352,13 +643,20 @@ def follow_instructions(instructions,start_loc, start_dir):
                 
                     left_wheel_motor.setVelocity(20 + (dif / 2))
                     right_wheel_motor.setVelocity(20 - (dif / 2))
-                
-                if front_us_sensor_value < 0.4: #Corresponds to approximately 0.3 metres
-                    state = "AVOIDING"
-                    avoidance_state = "incoming"
+            
+
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
+                
+                if front_us_sensor_value < 0.5 and False: #Potential obstacle
+                    print("POTENTIAL")
+                    potential_collision = True
+                else:
+                    potential_collision = False
+                
+                if infrared_sensor_averages["front infrared sensor"] > 150 and False:
+                    state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
             
@@ -439,44 +737,49 @@ def follow_instructions(instructions,start_loc, start_dir):
                             send_status_update(robot.getName(), location, direction, "moving")
 
             if state == "AVOIDING": # If avoiding, veer right
+                print(f"[{robot.name}] AVOIDING")
+                left_wheel_motor.setVelocity(0)
+                right_wheel_motor.setVelocity(0)
                 
-                if avoidance_state == "incoming": 
-                    if front_us_sensor_value < 0.35:
-                        avoidance_state = "turning"
-
+                
+                
+                if (ahead) == "black":
+                    state == "FOLLOW"
+                """
+                if avoidance_state == "incoming":
+                    #left_wheel_motor.setVelocity(0)
+                    #right_wheel_motor.setVelocity(0)
+                    
+                    avoidance_state = "turning"
+                
                 elif avoidance_state == "turning":
-                    turn_factor = 5
-                    left_wheel_motor.setVelocity(5+turn_factor)
-                    right_wheel_motor.setVelocity(5-turn_factor)
+                    turn_factor = -2
+                    left_wheel_motor.setVelocity(5-(turn_factor))
+                    right_wheel_motor.setVelocity(5+(turn_factor))
                     
                     if front_left_us_sensor_value < 1:
                         left_wheel_motor.setVelocity(0)
                         right_wheel_motor.setVelocity(0)
-                        avoidance_state = "circle"
+                        avoidance_state = "avoided"
                 
-                elif avoidance_state == "circle":
-                    max_passing_distance = 0.5
-                    min_passing_distance = 0.25
-                    desired_distance_delta = max(front_left_us_sensor_value-max_passing_distance, 0)-min_passing_distance
+                elif avoidance_state == "avoided":
+                #turn based off distance
                     
-                    left_wheel_motor.setVelocity(5-desired_distance_delta)
-                    right_wheel_motor.setVelocity(5+desired_distance_delta)
-                    
+                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2)/2)
+                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2)/2)
                     if left_us_sensor_value < 1:
                         avoidance_state = "passed"
                 
                 if avoidance_state == "passed":
                     
-                    left_wheel_motor.setVelocity(5)
-                    right_wheel_motor.setVelocity(5)
-                    
+                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2))
+                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2))
                     if left_us_sensor_value > 1.8:
                         left_wheel_motor.setVelocity(0)
                         right_wheel_motor.setVelocity(0)
                         state = "FOLLOW"
 
-               
-            
+               """
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
@@ -484,7 +787,7 @@ def follow_instructions(instructions,start_loc, start_dir):
             ahead = get_position(300) # checks what is coming up
             position = get_position() # checks where it currently is
             
-        else: # if there are no more instructions
+        else:
             left_wheel_motor.setVelocity(0)
             right_wheel_motor.setVelocity(0)
             
@@ -492,15 +795,25 @@ def follow_instructions(instructions,start_loc, start_dir):
             # Force IDLE if instructions are done
             state = "IDLE" 
 
+            current_node_key = f"{int(location[0])},{int(location[1])}"
+
+            if pickup_node and current_node_key == fmt_key(pickup_node):
+                print(f"[{robot.getName()}] Arrived at PICKUP node {current_node_key}")
+                if execute_pickup():
+                    send_status_update(robot.getName(), location, direction, "picked_up")
+                    # CRITICAL FIX: Return immediately to prevent sending "idle"
+                    print(f"[{robot.getName()}] Pickup complete. EXITING follow_instructions to wait for new assignment.")
+                    return location, direction
+            
+            elif drop_node and current_node_key == fmt_key(drop_node):
+                print(f"[{robot.getName()}] Arrived at DROP node {current_node_key}")
+                if execute_place():
+                    send_status_update(robot.getName(), location, direction, "delivered")
+
             if spot in ("red", "green", "blue") or state == "IDLE":
                 node_key = f"{int(location[0])},{int(location[1])}"
-                
-                # FIX: Add 'or state == "IDLE"' to bypass the duplicate check
-                # We ALWAYS want to tell the server when we stop.
                 if node_key != last_sent_node or state == "IDLE":
-                    
                     send_status_update(robot.getName(), location, direction, "idle")
-                    
                     last_sent_node = node_key
             
             return location, direction
@@ -586,10 +899,15 @@ while robot.step(timestep) != -1:
                 instructions = data.get("instructions")
                 location = data.get("location")
                 current_location=location
+                pickup_node=None
+                drop_node=None
+                if(data.get("task_id")!="CHARGE_REQ"):
+                    pickup_node=data.get("pickup_node")
+                    drop_node=data.get("drop_node")
                 #print("start following",instructions,current_location,current_direction)
                 if (instructions!="S"):
                     current_location, current_direction = follow_instructions(
-                        instructions, current_location, current_direction
+                        instructions, current_location, current_direction,pickup_node,drop_node
                     )
                 #print("following_complete")
             else:
@@ -603,7 +921,7 @@ while robot.step(timestep) != -1:
         if int(time.time() * 10) % 20 == 0:  # Rough 2-second interval
             status_msg = {
                 "type": "status",
-                "reason":"still charing",
+                "reason":"still charging",
                 "robot_id": robot.getName(),
                 "location": current_location,
                 "orientation": current_direction,

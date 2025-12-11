@@ -237,6 +237,22 @@ known_robots = {
         # Temporary storage to measure the current job
         "task_start_time": 0.0,
         "task_total_distance": 0.0,
+    },
+    "Norman": {
+        "id": "Norman", "node": "0,6", "x": 0, "y": 6, 
+        "orientation": 270, "battery": 25.0, "max_capacity": 5.0, 
+        "state": "idle", "current_task": None, "last_update": current_sim_time,
+        "initialized": False,  # <--- NEW FLAG
+        "battery_history": [],        # List of (time, battery, state)
+        "sim_idle_rate": 0.05, 
+        "sim_move_rate": 0.05,
+        "learned_idle_rate": DEFAULT_IDLE_DRAIN,
+        "learned_move_rate": DEFAULT_MOVE_DRAIN,
+        "last_learning_time": current_sim_time,
+        "learned_speed": DEFAULT_SPEED,  # Starts at S
+        # Temporary storage to measure the current job
+        "task_start_time": 0.0,
+        "task_total_distance": 0.0,
     }
 }
 

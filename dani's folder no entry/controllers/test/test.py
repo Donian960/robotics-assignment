@@ -603,7 +603,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
         current_lookahead = get_position(300)
         
         #### Distance sensor readings for collision avoidance - READINGS LEFT FOR DEBUGGING, BUT NOT USED          
-        # front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
+        front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
         # front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
         # left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
@@ -645,7 +645,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     right_wheel_motor.setVelocity(20 - (dif / 2))
             
 
-                # Avoidance state transition logic removed (if us_sensor_enabled and front_us_sensor_value < 0.35)
                     
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
