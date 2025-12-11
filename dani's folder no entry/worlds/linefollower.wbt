@@ -10,8 +10,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
-  position -0.12421033178557947 0.14138078903401238 7.909740294162759
+  orientation -0.29213897932806354 0.3361962708289299 0.8953361850377087 1.5409009865686456
+  position -2.6878352055250456 -1.6780977748310046 2.2045197887338652
 }
 TexturedBackground {
 }
@@ -59,19 +59,6 @@ Khepera4 {
   controller "my_controller"
   turretSlot [
     DEF BASE Khepera3_Gripper {
-    }
-    Lidar {
-    }
-  ]
-}
-Khepera4 {
-  translation -2.51 1.88 0
-  rotation 0 0 1 -1.5707953071795862
-  name "Henry"
-  controller "my_controller"
-  turretSlot [
-    DEF BASE Khepera3_Gripper {
-      translation -0.03 0 0.074
     }
     Lidar {
     }
@@ -182,6 +169,18 @@ Khepera4 {
   translation -2.52 -1.25 0
   rotation 0 0 1 1.5708
   name "Norman"
+  controller "my_controller"
+  turretSlot [
+    Lidar {
+    }
+    DEF BASE Khepera3_Gripper {
+    }
+  ]
+}
+Khepera4 {
+  translation -2.48 1.85 0
+  rotation 0 0 1 -1.5707953071795862
+  name "Henry"
   controller "my_controller"
   turretSlot [
     Lidar {

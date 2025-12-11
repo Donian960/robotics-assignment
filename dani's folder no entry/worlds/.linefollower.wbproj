@@ -6,11 +6,12 @@ minimizedPerspectives: 000000ff00000000fd0000000300000000000001ca0000039ffc02000
 maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
-textFiles: 1 "controllers/my_controller/my_controller.py" "controllers/supervisor_controller/supervisor_controller.py" "controllers/my_controller/odometry.py"
+textFiles: 0 "controllers/my_controller/my_controller.py" "controllers/supervisor_controller/supervisor_controller.py" "controllers/my_controller/odometry.py" "controllers/client_controller/client_controller.py"
+globalOptionalRendering: DistanceSensorRays
 consoles: Console:All:All
 renderingDevicePerspectives: Henry:camera;1;0.895833;0;0
 renderingDevicePerspectives: Khepera IV-1:camera;0;0.0666667;0;0
 renderingDevicePerspectives: Khepera IV:camera;1;0.0666667;0;0
 renderingDevicePerspectives: Norman:camera;1;0.863032;0;0
-renderingDevicePerspectives: Percy:camera;1;0.984043;0;0
-renderingDevicePerspectives: Thomas:camera;1;0.984043;0;0
+renderingDevicePerspectives: Percy:camera;1;0.895833;0;0
+renderingDevicePerspectives: Thomas:camera;1;0.895833;0;0

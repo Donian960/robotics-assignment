@@ -657,19 +657,26 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
             
 
                     
-                if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
-                    state = "STOPPING"
+
                 
                 if front_us_sensor_value < 0.5: #Potential obstacle
                     potential_collision = True
                 else:
                     potential_collision = False
                 
-                if max([infrared_sensor_averages["front infrared sensor"],infrared_sensor_averages["front left infrared sensor"]]) > 150:
+                if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
+                    if infrared_sensor_averages["front infrared sensor"] > 190:
+                        left_wheel_motor.setVelocity(0)
+                        right_wheel_motor.setVelocity(0)
+                    else:
+                        state = "STOPPING"
+                elif max([infrared_sensor_averages["front infrared sensor"],infrared_sensor_averages["front left infrared sensor"]]) > 200:
                     state = "AVOIDING"
                 
+
+                
             if state == "STOPPING": # if the robot is stopping at an intersection
-            
+                
                 if instructions[current_instruction] != "F": # if the robot is not currently stopping
                 
                     if position != "black": # if it is fully on the spot, slows down
@@ -763,19 +770,19 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     right_wheel_motor.setVelocity(-5)
                 
                 # If the robot is within ~19cm, start turning away
-                elif infrared_sensor_averages["front infrared sensor"] > 130:
+                elif infrared_sensor_averages["front infrared sensor"] > 150:
                     left_wheel_motor.setVelocity(5)
                     right_wheel_motor.setVelocity(-5)
                 
                 # If robot is facing an open path, start moving forward, 
                 # veering away from anything too close to the front left sensor.
-                elif infrared_sensor_averages["front left infrared sensor"] > 130:
+                elif infrared_sensor_averages["front left infrared sensor"] > 150:
                     front_left_sensor = infrared_sensor_averages["front left infrared sensor"]/100
                     left_wheel_motor.setVelocity(5 + front_left_sensor)
                     right_wheel_motor.setVelocity(5 - front_left_sensor)
                     away_from_line = True
                 
-                #The robot is near nothing as far as we can tell, return to line
+                # The robot is near nothing as far as we can tell, return to line
                 else:
                     # If the odometry y coordinate is ~0, the robot is (in theory) back on the line.
                     # Start trying to find it.
