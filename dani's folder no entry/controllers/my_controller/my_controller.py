@@ -649,13 +649,12 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
                     state = "STOPPING"
                 
-                if front_us_sensor_value < 0.5 and False: #Potential obstacle
-                    print("POTENTIAL")
+                if front_us_sensor_value < 0.5: #Potential obstacle
                     potential_collision = True
                 else:
                     potential_collision = False
                 
-                if infrared_sensor_averages["front infrared sensor"] > 150 and False:
+                if infrared_sensor_averages["front infrared sensor"] > 150:
                     state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
@@ -738,13 +737,26 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
 
             if state == "AVOIDING": # If avoiding, veer right
                 print(f"[{robot.name}] AVOIDING")
-                left_wheel_motor.setVelocity(0)
-                right_wheel_motor.setVelocity(0)
+
                 
+                #If something is directly in front, turn until it is no longer
+                if infrared_sensor_averages["front infrared sensor"] > 130:
+                    left_wheel_motor.setVelocity(5)
+                    right_wheel_motor.setVelocity(-5)
                 
+                elif infrared_sensor_averages["front left infrared sensor"] > 130:
+                    front_left_sensor = infrared_sensor_averages["front left infrared sensor"]/100
+                    left_wheel_motor.setVelocity(5 + front_left_sensor)
+                    right_wheel_motor.setVelocity(5 - front_left_sensor)
                 
-                if (ahead) == "black":
-                    state == "FOLLOW"
+                else:
+                    left_wheel_motor.setVelocity(5 - 2)
+                    right_wheel_motor.setVelocity(5 + 2)
+                    
+                    if (ahead) == "black":
+                        state = "FOLLOW"
+                
+
                 """
                 if avoidance_state == "incoming":
                     #left_wheel_motor.setVelocity(0)

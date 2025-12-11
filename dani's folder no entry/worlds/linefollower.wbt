@@ -6,12 +6,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera4/protos/Khepera4.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/Pole.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera3/protos/Khepera3_Gripper.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/k-team/khepera3/protos/Khepera3.proto"
 
 WorldInfo {
 }
 Viewpoint {
   orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
-  position -0.11974705392652182 -0.16818128697820928 12.374061875663305
+  position -2.507009465675838 -0.1877395410510449 1.1033202798252915
 }
 TexturedBackground {
 }
@@ -154,4 +155,9 @@ Khepera4 {
     DEF BASE Khepera3_Gripper {
     }
   ]
+}
+Khepera3 {
+  translation -2.5 0 0
+  name "Obstacle"
+  controller "<none>"
 }
