@@ -752,7 +752,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                 else:
                     if away_from_line and abs(od.y) < 0.01:
-                        if ahead == "black":
+                        if ahead != "white" and od.theta < 0.1:
                             state = "FOLLOW"
                             od = None
                             away_from_line = False
@@ -763,43 +763,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     else:
                         left_wheel_motor.setVelocity(5 - 2)
                         right_wheel_motor.setVelocity(5 + 2)
-                
 
-                """
-                if avoidance_state == "incoming":
-                    #left_wheel_motor.setVelocity(0)
-                    #right_wheel_motor.setVelocity(0)
-                    
-                    avoidance_state = "turning"
-                
-                elif avoidance_state == "turning":
-                    turn_factor = -2
-                    left_wheel_motor.setVelocity(5-(turn_factor))
-                    right_wheel_motor.setVelocity(5+(turn_factor))
-                    
-                    if front_left_us_sensor_value < 1:
-                        left_wheel_motor.setVelocity(0)
-                        right_wheel_motor.setVelocity(0)
-                        avoidance_state = "avoided"
-                
-                elif avoidance_state == "avoided":
-                #turn based off distance
-                    
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2)/2)
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2)/2)
-                    if left_us_sensor_value < 1:
-                        avoidance_state = "passed"
-                
-                if avoidance_state == "passed":
-                    
-                    left_wheel_motor.setVelocity(5-(front_left_us_sensor_value-0.2))
-                    right_wheel_motor.setVelocity(5+(front_left_us_sensor_value-0.2))
-                    if left_us_sensor_value > 1.8:
-                        left_wheel_motor.setVelocity(0)
-                        right_wheel_motor.setVelocity(0)
-                        state = "FOLLOW"
-
-               """
             if state == "IDLE": # if its idle it stays idle
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)

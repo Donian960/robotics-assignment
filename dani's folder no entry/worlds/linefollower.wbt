@@ -12,7 +12,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
-  position -2.507009465675838 -0.1877395410510449 1.1033202798252915
+  position -2.5069900477418376 -0.18772012306213545 7.970530564969569
 }
 TexturedBackground {
 }
@@ -157,7 +157,7 @@ Khepera4 {
   ]
 }
 Khepera3 {
-  translation -2.5 0 0
+  translation -2.5 1.71 0
   name "Obstacle"
   controller "<none>"
 }
