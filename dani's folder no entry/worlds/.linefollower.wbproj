@@ -7,7 +7,6 @@ maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
 textFiles: 0 "controllers/my_controller/my_controller.py" "controllers/supervisor_controller/supervisor_controller.py" "controllers/my_controller/odometry.py" "controllers/client_controller/client_controller.py"
-globalOptionalRendering: DistanceSensorRays
 consoles: Console:All:All
 renderingDevicePerspectives: Henry:camera;1;0.895833;0;0
 renderingDevicePerspectives: Khepera IV-1:camera;0;0.0666667;0;0

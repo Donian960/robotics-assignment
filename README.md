@@ -35,20 +35,30 @@ Per assignment guidelines, the following outlines what was **self-implemented** 
 - **Robot Finite State Machine (FSM)**  
   States: `IDLE`, `BUSY`, `MOVING_TO_CHARGE`, `CHARGING`.
 
-- **Line Following Algorithm**
+- **Line Following Algorithm**  
   Uses the robot's camera in combination with a state system consisting of `IDLE`, `FOLLOW`, `TURN`, and `STOPPING` to control the speed of the motors.
+
+- **Collision Avoidance Algorithm & Odometry**  
+  Uses the robot's distance sensors to detect collisions and the wheel sensors to perform odometry in order to avoid them.
 
 ### 2. Pre-Programmed Packages & Libraries
 
-- **Webots Khepera IV Model**  
+- **Webots Libraries**  
   Used the standard Cyberbotics robot and motor API (e.g. `setVelocity()`).
+
+- **K-Team's Khepera IV**  
+  Two-wheeled robot configured with various nodes.
+  * PROTO modified by us to set the `redColorSensitivity` of the Infrared Sensors to `0`.
+
+- **K-Team's Khepera III-Gripper**  
+  Robot arm used for manipulation of objects.
 
 - **NetworkX**  
   Used as a graph structure and for `dijkstra_path_length`.  
   *Only for shortest path calculation*
 
 - **Python Standard Library**  
-  `json`, `math`, `itertools`, `collections`.
+  `time`, `json`, `math`, `statistics`, `re`, `heapq`, `itertools`, `collections`, `dataclasses`, `typing`.
 
 
 
