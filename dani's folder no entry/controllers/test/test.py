@@ -103,9 +103,14 @@ infrared_sensors_names = ["rear left infrared sensor",
                           "ground front right infrared sensor",
                           "ground right infrared sensor"]
 infrared_sensors = {}
+infrared_sensor_samples = {}
+infrared_sensor_averages = {}
 for index, name in enumerate(infrared_sensors_names):
     infrared_sensors[name] = robot.getDevice(name)
     infrared_sensors[name].enable(timestep)
+    
+    infrared_sensor_samples[name] = [0]
+    infrared_sensor_averages[name] = 0
   
 led_names = ["front left led",
              "front right led",
@@ -541,8 +546,8 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     direction = start_dir
     state = "TURN"
     potential_collision = False
+    denoising_sample_size = 10
     avoidance_state = "none"
-    ir_sensor_samples = []
     # "state" can be one of the following values:
     ## "FOLLOW" - following a black line
     ## "TURN" - changing direction at a spot
@@ -592,12 +597,13 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
         front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
         left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
-        #list of values for moving median
-        front_ir_sensor_value = infrared_sensors["front infrared sensor"].getValue()
-        ir_sensor_samples.append(front_ir_sensor_value)
-        if len(ir_sensor_samples) > 10:
-            ir_sensor_samples.pop(0)
-        ir_sensor_avg = statistics.mean(ir_sensor_samples)
+        #Add new IR readings to sample lists, remove oldest, then take the mean to denoise
+        for sensor in ["front infrared sensor","front left infrared sensor", "left infrared sensor"]:
+            value = infrared_sensors[sensor].getValue()
+            infrared_sensor_samples[sensor].append(value)
+            if len(infrared_sensor_samples[sensor]) > denoising_sample_size:
+                infrared_sensor_samples[sensor].pop(0)
+            infrared_sensor_averages[sensor] = statistics.mean(infrared_sensor_samples[sensor])
         
         if len(instructions) > 0 and current_instruction < len(instructions):
         
@@ -635,8 +641,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 else:
                     potential_collision = False
                 
-                print(f"{ir_sensor_avg}   -    {front_ir_sensor_value}")
-                if ir_sensor_avg > 150:
+                if infrared_sensor_averages["front infrared sensor"] > 150:
                     state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
@@ -721,6 +726,11 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 print("AVOIDING")
                 left_wheel_motor.setVelocity(0)
                 right_wheel_motor.setVelocity(0)
+                
+                
+                
+                if (ahead) == "black":
+                    state == "FOLLOW"
                 """
                 if avoidance_state == "incoming":
                     #left_wheel_motor.setVelocity(0)
