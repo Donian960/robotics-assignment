@@ -11,7 +11,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
-  position 0.06330633239869775 -0.08394530310174422 10.516590465770634
+  position 0.1751552684155427 -0.0701030966795867 11.806102477846135
 }
 TexturedBackground {
 }
@@ -166,7 +166,7 @@ Khepera4 {
   ]
 }
 Khepera4 {
-  translation -2.5 -1.26 0
+  translation -2.5 -1.25 0
   rotation 0 0 1 1.5708
   name "Norman"
   controller "my_controller"

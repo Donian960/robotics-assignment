@@ -559,9 +559,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     ## "AVOIDING" - avoiding an oncoming robot
     ## "IDLE" - unmoving
     
-    if robot.getName() == "Norman":
-        print(instructions)
-    
     #instructions = "FLLRRFFFLRRS"
     # "instructions" can be made up of the following characters:
     ## "F" - move forwards at a spot
@@ -606,9 +603,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     previous_lookahead = get_position(300)
     
     while robot.step(timestep) != -1:
-    
-        if robot.getName() == "Norman":
-            print(state, str(infrared_sensor_averages["front infrared sensor"]))
 
         current_lookahead = get_position(300)
         
@@ -671,7 +665,8 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                     potential_collision = False
                 
                 if ahead != "black" and ahead != "white": # if it detects a spot, swaps to stopping
-                    if infrared_sensor_averages["front infrared sensor"] > 130:
+                    if infrared_sensor_averages["front infrared sensor"] > 135:
+                        print(str(infrared_sensor_averages["front infrared sensor"]))
                         state = "BLOCKED INTERSECTION"
                         #left_wheel_motor.setVelocity(0)
                         #right_wheel_motor.setVelocity(0)
