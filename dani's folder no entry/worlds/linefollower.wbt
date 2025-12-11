@@ -11,8 +11,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.15798700597154744 0.5812535630791739 0.7982383111276425 0.6563996636028611
-  position -2.9306083634740117 -0.5765017593220394 1.1368786651970102
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position -1.781367582058642 0.19985333296496427 4.26581236041783
 }
 TexturedBackground {
 }
@@ -170,7 +170,7 @@ Khepera4 {
   ]
 }
 Khepera3 {
-  translation -3.21 1.23 0
+  translation -2.51 -0.4 0
   name "Obstacle"
   controller "<none>"
 }

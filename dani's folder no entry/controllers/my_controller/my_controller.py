@@ -615,10 +615,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
             if len(infrared_sensor_samples[sensor]) > denoising_sample_size:
                 infrared_sensor_samples[sensor].pop(0)
             infrared_sensor_averages[sensor] = statistics.mean(infrared_sensor_samples[sensor])
-        
-        if robot.name == "Henry" or robot.name == "Norman":
-            print(f"{robot.name} : {state} : FSA - {infrared_sensor_averages['front infrared sensor']} : FS - {infrared_sensors['front infrared sensor'].getValue()}")
-            print(len(infrared_sensor_samples['front infrared sensor']))
+
         if len(instructions) > 0 and current_instruction < len(instructions):
             # US sensor disabling logic removed
         
@@ -662,7 +659,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 else:
                     potential_collision = False
                 
-                if infrared_sensor_averages["front infrared sensor"] > 130:
+                if infrared_sensor_averages["front infrared sensor"] > 150:
                     state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
@@ -749,7 +746,6 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 od.step(left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
                 
                 #If something is directly in front, turn until it is no longer
-                print(f"{robot.name} : X: {od.x}, Y:{od.y}")
                 if infrared_sensor_averages["front infrared sensor"] > 400:
                     left_wheel_motor.setVelocity(-5)
                     right_wheel_motor.setVelocity(-5)
