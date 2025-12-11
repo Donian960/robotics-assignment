@@ -596,15 +596,17 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
     start_time = time.time()
     last_sent_node = None
     previous_lookahead = get_position(300)
+    
+    if (robot.name == "Henry" or robot.name == "Norman"):
+        instructions = "FFFFF"
+        state = "FOLLOW"
 
     while robot.step(timestep) != -1:
-       
+
         current_lookahead = get_position(300)
         
         #### Distance sensor readings for collision avoidance - READINGS LEFT FOR DEBUGGING, BUT NOT USED          
         front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
-        # front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
-        # left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
         
         #Add new IR readings to sample lists, remove oldest, then take the mean to denoise
         for sensor in ["front infrared sensor","front left infrared sensor", "left infrared sensor"]:
@@ -614,8 +616,10 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 infrared_sensor_samples[sensor].pop(0)
             infrared_sensor_averages[sensor] = statistics.mean(infrared_sensor_samples[sensor])
         
+        if robot.name == "Henry" or robot.name == "Norman":
+            print(f"{robot.name} : {state} : FSA - {infrared_sensor_averages['front infrared sensor']} : FS - {infrared_sensors['front infrared sensor'].getValue()}")
+            print(len(infrared_sensor_samples['front infrared sensor']))
         if len(instructions) > 0 and current_instruction < len(instructions):
-
             # US sensor disabling logic removed
         
             if state == "FOLLOW": # if it is currently following a line
@@ -624,9 +628,14 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 
                 dif = (l - r) / 1000
                 
-                # speeds are set based on what side of the line it is on, as well as how far off the line it is
+                #if there may be a collision, go very slow so both robots can stop in time
+                if  potential_collision:
+                    print(f"{robot.name} : Potential Collision!")
+                    left_wheel_motor.setVelocity(5 + (dif / 2))
+                    right_wheel_motor.setVelocity(5 - (dif / 2))
                 
-                if dif >= 0.15 or potential_collision:
+                # speeds are set based on what side of the line it is on, as well as how far off the line it is
+                elif dif >= 0.15:
                 
                     # slower speeds are used the further off-line it is so it can readjust easier
             
@@ -653,7 +662,7 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                 else:
                     potential_collision = False
                 
-                if infrared_sensor_averages["front infrared sensor"] > 150:
+                if infrared_sensor_averages["front infrared sensor"] > 130:
                     state = "AVOIDING"
                 
             if state == "STOPPING": # if the robot is stopping at an intersection
@@ -734,13 +743,18 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
                             location, direction = trace(location, direction, ci)
                             send_status_update(robot.getName(), location, direction, "moving")
 
-            if state == "AVOIDING": # If avoiding, veer right
+            if state == "AVOIDING": # If avoiding, veer right                
                 if od == None:
                     od = Odometry(0, 0, 0, left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
                 od.step(left_wheel_sensor.getValue(), right_wheel_sensor.getValue())
+                
                 #If something is directly in front, turn until it is no longer
-                print(f"X: {od.x}, Y:{od.y}")
-                if infrared_sensor_averages["front infrared sensor"] > 130:
+                print(f"{robot.name} : X: {od.x}, Y:{od.y}")
+                if infrared_sensor_averages["front infrared sensor"] > 400:
+                    left_wheel_motor.setVelocity(-5)
+                    right_wheel_motor.setVelocity(-5)
+                
+                elif infrared_sensor_averages["front infrared sensor"] > 130:
                     left_wheel_motor.setVelocity(5)
                     right_wheel_motor.setVelocity(-5)
                 
