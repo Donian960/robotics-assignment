@@ -10,8 +10,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
+<<<<<<< HEAD
   orientation 0.5810485365929755 0.5584507847204342 -0.5920433423055215 2.1069337509704757
   position -0.6008850099381899 0.1142429484211761 11.733028681130364
+=======
+  orientation -0.44782487632953555 -0.06521081062249684 0.8917401136645098 3.3998585037634625
+  position 4.478373621117422 1.296696243104199 6.170022985157817
+>>>>>>> 4e888944bca6ceaea0feeca084e5d373b87f91d6
 }
 TexturedBackground {
 }
@@ -42,10 +47,10 @@ RectangleArena {
     }
   }
 }
-Solid {
-  translation -1.25 0.45 0.04
+DEF CYLINDER_LOAD Solid {
+  translation -1.24 0.44 0.04
   children [
-    Shape {
+    DEF CYLINDER_SHAPE Shape {
       appearance PBRAppearance {
         baseColor 1 0 0
         roughness 0.5
@@ -53,19 +58,14 @@ Solid {
       }
       geometry Cylinder {
         height 0.08
-        radius 0.013
+        radius 0.012
       }
     }
   ]
-  boundingObject Shape {
-    appearance PBRAppearance {
-    }
-    geometry Cylinder {
-      height 0.1
-      radius 0.05
-    }
-  }
+  boundingObject USE CYLINDER_SHAPE
   physics Physics {
+    density 100
+    mass 0.05
   }
 }
 Robot {
@@ -93,7 +93,11 @@ Pole {
   name "client pole"
 }
 Khepera4 {
+<<<<<<< HEAD
   translation -2.51023 2.49554 -0.000160525
+=======
+  translation -1.24882 1.25699 -0.000160525
+>>>>>>> 4e888944bca6ceaea0feeca084e5d373b87f91d6
   rotation -2.87848e-10 2.86974e-10 1 -1.5696553071795858
   controller "test"
   turretSlot [

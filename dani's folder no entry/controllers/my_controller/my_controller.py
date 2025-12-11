@@ -317,9 +317,14 @@ def follow_instructions(instructions,start_loc, start_dir):
         
         #### Distance sensor readings for collision avoidance          
         #Get long distance us reading
+        # front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
+        # front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
+        # left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
+        
         front_us_sensor_value = ultrasonic_sensors["front ultrasonic sensor"].getValue()
         front_left_us_sensor_value = ultrasonic_sensors["front left ultrasonic sensor"].getValue()
         left_us_sensor_value = ultrasonic_sensors["left ultrasonic sensor"].getValue()
+        
         
         if len(instructions) > 0 and current_instruction < len(instructions):
         
