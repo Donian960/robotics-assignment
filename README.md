@@ -11,7 +11,7 @@ The system is **battery- and energy-aware**, using an exponential risk term that
 
 Please note the repository got quite messy during development. The world file to be assessed is at the path:
 
-dani's folder no entry/worlds/.linefollower.wbproj
+MAIN PROJECT/worlds/linefollower.wbt
 
 
 ## Statement of Contribution
