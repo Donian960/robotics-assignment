@@ -743,7 +743,6 @@ def assign_task(robot, task):
     est_duration = (total_dist / current_speed) + HANDLING_OVERHEAD
     
     # 4. Standard Assignment Logic (Instructions, etc.)
-    # ... (Keep your existing path generation code here) ...
     instr = generate_instructions(path_pickup, robot["orientation"])
     
     robot["current_task"] = task.id
@@ -775,14 +774,11 @@ def assign_task(robot, task):
     }
     emitter.send(json.dumps(msg_client).encode('utf-8'))
     
-    #print(f"Allocated {task.id}. Dist: {total_dist:.1f}m. ETA: {est_duration:.1f}s")
 # --- Main Loop ---
 
 print("Server Running...")
 
 while sup.step(timestep) != -1:
-    
-    # Debug: Confirm main loop is running
     if sup.getTime() < 0.1:
         print("[SUPERVISOR] Main loop running.")
 
@@ -819,11 +815,9 @@ while sup.step(timestep) != -1:
                         old_node = r["node"]
                         r["node"] = nearest
                         
-                        # Existing Supervisor logic (unchanged)
                         if r["state"] == "moving_to_charge" and nearest == r.get("current_drop"):
                             r["state"] = "charging"
                             r["current_drop"] = None
-                        # ... (other state transition logic based on node arrival, kept for context but not critical to the fix) ...
                             
                         if nearest != old_node and r["state"] not in ["idle", "charging"]:
                             correction_msg = {
@@ -836,26 +830,23 @@ while sup.step(timestep) != -1:
                             emitter.send(json.dumps(correction_msg).encode('utf-8'))
                             
                     reported_state = msg.get("state")
-                    # Debug: Print received status
-                    print(f"[SUPERVISOR] RECEIVED STATUS from {rid}: state='{reported_state}', time={sup.getTime():.2f}")
+                    print(f"[SUPERVISOR] Received status from {rid}: state='{reported_state}', time={sup.getTime():.2f}")
 
-                    # --- CRITICAL FIX: HANDLER FOR ROBOT PICKUP CONFIRMATION ---
+                    # Handler for robot pickup/drop task
                     if reported_state == "picked_up":
                         pickup_node = r.get("current_pickup")
                         drop_node = r.get("current_drop")
                         task_id = r.get("current_task")
 
-                        # Check if all necessary task context is available
                         if pickup_node and drop_node and task_id:
                             print(f"[{rid}] Pickup confirmed. Calculating path from {r['node']} to {drop_node}...")
 
-                            # 2. Plan path from Current Node (where robot is) -> Drop Node
+                            # Plan path from Current Node to Drop Node
                             try:
-                                # Use r["node"] for pathfinding since it's the robot's current location
                                 path_drop = nx.shortest_path(G, r["node"], drop_node, weight='length')
                                 instr_drop = generate_instructions(path_drop, r["orientation"])
 
-                                # 3. Send the instructions for the second leg
+                                # Send the instructions for the second leg
                                 msg = {
                                     "type": "assign",
                                     "task_id": task_id,
@@ -869,7 +860,7 @@ while sup.step(timestep) != -1:
                                 print(f"[SUPERVISOR] SENT ASSIGNMENT to {rid}: Drop path sent (length {len(instr_drop)} instructions).")
                                 emitter.send(json.dumps(msg).encode('utf-8'))
                                 
-                                # 4. Update Supervisor state
+                                # Update Supervisor state
                                 r["state"] = "busy_loaded"
                                 tasks[task_id].status = "picked"
                                 
@@ -879,7 +870,6 @@ while sup.step(timestep) != -1:
                                 print(f"[SUPERVISOR ERROR] Error during drop path calculation/send: {e}")
                         else:
                             print(f"[SUPERVISOR WARNING] Robot {rid} reported picked_up but is missing necessary task data: TaskID='{task_id}', Drop='{drop_node}'.")
-                    # --- END CRITICAL FIX ---
 
 
                     if reported_state == "idle":
