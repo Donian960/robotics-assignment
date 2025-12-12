@@ -9,6 +9,9 @@ This project implements a centralized supervisory framework for real-time task a
 
 The system is **battery- and energy-aware**, using an exponential risk term that encourages robots to proactively seek charging before depletion. It also incorporates **Online Parameter Estimation** to learn the true robot velocity and battery discharge rates during simulation, improving allocation accuracy in non-ideal physics.
 
+Please note the repository got quite messy during development. The world file to be assessed is at the path:
+
+dani's folder no entry/worlds/.linefollower.wbproj
 
 
 ## Statement of Contribution
