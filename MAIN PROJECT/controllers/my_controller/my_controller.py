@@ -143,7 +143,7 @@ left_wheel_sensor.enable(timestep)
 right_wheel_sensor = robot.getDevice("right wheel sensor")
 right_wheel_sensor.enable(timestep)
 
-# --- Manipulation Devices (for pickup/place) ---
+# Manipulation Devices (for pickup/drop) 
 try:
     # Gripper motors
     arm_motor = robot.getDevice("horizontal_motor")
@@ -296,17 +296,15 @@ def wait_for_supervisor_config():
     return [0, 0], 90 # Fallback (should not happen)
     
 
-# ==================== MANIPULATION FUNCTIONS ====================
+# ==================== OBJECT MANIPULATION FUNCTIONS ====================
 
-def reset_gripper():
-    """Reset gripper to default position"""
+def reset_gripper(): # Reset gripper to default position
     if not HAS_MANIPULATOR:
         return
     arm_motor.setPosition(0.0)
     finger_motor.setPosition(0.0)
 
-def get_lidar_distance():
-    """Get closest object distance from LIDAR"""
+def get_lidar_distance(): # Get closest object distance from LIDAR
     if not HAS_MANIPULATOR:
         return None
     ranges = lidar.getRangeImage()
@@ -314,12 +312,9 @@ def get_lidar_distance():
         return None
     return float(min(ranges))
 
-def get_camera_offset():
-    """Find horizontal offset of red object in camera view"""
+def get_camera_offset(): # Find horizontal offset of red object in camera view
     if not HAS_MANIPULATOR:
         return None
-    
-    import numpy as np
     
     img = camera.getImage()
     if img is None:
@@ -331,7 +326,7 @@ def get_camera_offset():
     arr = np.frombuffer(img, np.uint8).reshape((cam_height, cam_width, 4))
     bgr = arr[:, :, :3]
     
-    # Target red object: BGR = [0, 0, 255]
+    # Target red object
     TARGET_COLOR_BGR = np.array([0, 0, 255])
     COLOR_TOLERANCE = 85
     MIN_OBJECT_AREA = 30
@@ -347,8 +342,7 @@ def get_camera_offset():
     offset = -(cx - cam_width/2) / (cam_width/2)
     return offset
 
-def scan_for_object():
-    """Scan environment to find red object"""
+def scan_for_object(): # Scan environment to find red object
     if not HAS_MANIPULATOR:
         return False
     
@@ -391,8 +385,7 @@ def scan_for_object():
     print("Object NOT found")
     return False
 
-def center_object():
-    """Center object using camera"""
+def center_object(): # Center object using camera
     if not HAS_MANIPULATOR:
         return False
     
@@ -423,8 +416,7 @@ def center_object():
     
     return False
 
-def align_distance():
-    """Align to pickup distance using LIDAR"""
+def align_distance(): # Align to pickup distance using LIDAR
     if not HAS_MANIPULATOR:
         return False
     
@@ -459,13 +451,12 @@ def align_distance():
     print("Distance alignment timeout")
     return False
 
-def execute_pickup():
-    """Complete pickup sequence"""
+def execute_pickup(): # Pickup process
     if not HAS_MANIPULATOR:
         print("Cannot pickup - no manipulator")
         return False
     
-    print("\n=== STARTING PICKUP ===")
+    print("\nSTARTING PICKUP")
     
     if not scan_for_object():
         return False
@@ -499,13 +490,12 @@ def execute_pickup():
     print("PICKUP COMPLETE\n")
     return True
 
-def execute_place():
-    """Complete place sequence"""
+def execute_place(): # Drop Process
     if not HAS_MANIPULATOR:
-        print("Cannot place - no manipulator")
+        print("Cannot drop - no manipulator")
         return False
     
-    print("\n=== STARTING PLACE ===")
+    print("\nSTARTING DROP")
     
     # Lower arm
     arm_motor.setPosition(-3.0)
@@ -530,7 +520,7 @@ def execute_place():
     left_wheel_motor.setVelocity(0)
     right_wheel_motor.setVelocity(0)
     
-    print("PLACE COMPLETE\n")
+    print("DROP COMPLETE\n")
     return True
 
 # ==================== END MANIPULATION FUNCTIONS ====================
@@ -544,7 +534,7 @@ def fmt_key(k):
         return f"{int(k[0])},{int(k[1])}"
     return str(k)
 
-## Main ##
+## Main
 current_location = [0, 0] 
 current_direction = 90
 
@@ -836,18 +826,22 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
 
             current_node_key = f"{int(location[0])},{int(location[1])}"
 
+            # When current node is pickup location, perform pickup task
             if pickup_node and current_node_key == fmt_key(pickup_node):
                 print(f"[{robot.getName()}] Arrived at PICKUP node {current_node_key}")
                 if execute_pickup():
                     send_status_update(robot.getName(), location, direction, "picked_up")
-                    # CRITICAL FIX: Return immediately to prevent sending "idle"
-                    print(f"[{robot.getName()}] Pickup complete. EXITING follow_instructions to wait for new assignment.")
+                    print(f"[{robot.getName()}] Pickup complete.")
+                    #Exiting follow_instructions to wait for next assignment, which is to resume task (move to drop node) after pickup.
+                    #Drop task will be called after reaching drop node
                     return location, direction
             
+            # When current node is drop location, perform drop task
             elif drop_node and current_node_key == fmt_key(drop_node):
                 print(f"[{robot.getName()}] Arrived at DROP node {current_node_key}")
                 if execute_place():
                     send_status_update(robot.getName(), location, direction, "delivered")
+                    print(f"[{robot.getName()}] Drop complete.")
 
             if spot in ("red", "green", "blue") or state == "IDLE":
                 node_key = f"{int(location[0])},{int(location[1])}"
@@ -857,16 +851,12 @@ def follow_instructions(instructions,start_loc, start_dir,pickup_node,drop_node)
             
             return location, direction
             
-#print(robot.getName())
-#print(robot.getName())
 current_location, current_direction = wait_for_supervisor_config()
 
 # NEW: Charging state flag
 is_charging = False
 
-while robot.step(timestep) != -1:
-    #print(robot.getName(), current_direction)
-    
+while robot.step(timestep) != -1:    
     if receiver.getQueueLength() > 0:
         msg = receiver.getString()
         try:
